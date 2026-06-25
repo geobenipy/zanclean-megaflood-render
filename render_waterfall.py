@@ -37,8 +37,8 @@ from mathutils import Vector
 # =====================================================================
 # CONFIG
 # =====================================================================
-DATA_DIR   = r"output_dessicated_new"          # folder with heightmap_16bit.png + heightmap_meta.json
-OUTPUT_PNG = r"output_dessicated_new\render_waterfall.png"
+DATA_DIR   = r"output"          # folder with heightmap_16bit.png + heightmap_meta.json
+OUTPUT_PNG = r"output\render_waterfall.png"
 
 # --- terrain ---
 SUBDIVISIONS = 800                   # grid resolution (cuts per side). 600-1000 is a good range.
