@@ -58,10 +58,10 @@ MES_ONLY = False
 # ---- TARGET GRID ----
 TARGET_CRS = None                    # None = auto (picks EPSG:32633 from MES_CRS, since GEBCO is geographic)
 TARGET_RES = None                    # None = auto (~450 m from GEBCO); or metres (e.g. 100) for a canyon crop
-CROP_BBOX  = None                    # None = full extent; or (xmin,ymin,xmax,ymax) in TARGET CRS (metres!)
+CROP_BBOX  = (380000, 3980000, 660000, 4180000)                 # None = full extent; or (xmin,ymin,xmax,ymax) in TARGET CRS (metres!)
 
 # ---- SEAM FEATHER ----
-FEATHER_M = 3000.0                   # width (m) of the blend ramp from modern (MES edge) to MES (inside)
+FEATHER_M = 100000.0                   # width (m) of the blend ramp from modern (MES edge) to MES (inside)
 
 # ---- BACKGROUND WARP (alternative to the feather; for wide / context shots) ----
 # True: warp the modern DEM toward the MES at the seam and decay that offset
@@ -69,8 +69,8 @@ FEATHER_M = 3000.0                   # width (m) of the blend ramp from modern (
 # background with NO hard rectangle. The MES interior stays at full detail.
 # NOTE: the warp is isotropic, so it also pulls the *landward* DEM toward MES
 # depths over the decay length -> shorten WARP_LENGTH_M if you don't want that.
-WARP_BACKGROUND_TO_MES = True
-WARP_LENGTH_M = 30000.0              # offset decay length (m) into the GEBCO region
+WARP_BACKGROUND_TO_MES = False
+WARP_LENGTH_M = 50000.0              # offset decay length (m) into the GEBCO region
 WARP_SMOOTH_M = 4000.0               # Gaussian smoothing of the offset field (m); removes facets
 
 # ---- OPTIONAL FIRST-ORDER PALAEO CORRECTION (loading subsidence) ----
@@ -85,12 +85,34 @@ SUBSIDENCE_ELEV_FULL  = -2300.0      # below this elevation: full correction (sm
 PALEO_SEA_LEVEL_M = -2000.0          # desiccated lowstand relative to present sea level
 
 # ---- OUTPUT ----
-OUT_DIR           = "outputv2"
+OUT_DIR           = "output"
 OUT_GEOTIFF       = "merged_paleo_dem.tif"
 OUT_HEIGHTMAP_PNG = "heightmap_16bit.png"
 OUT_META_JSON     = "heightmap_meta.json"
 OUT_HILLSHADE     = "hillshade_qc.png"
+OUT_COLORMAP_PNG  = "colormap.png"
 VE_HINT           = 3.0              # suggested vertical exaggeration for the render (written to meta)
+
+# ---- BAKED COLOUR (recommended): a hypsometric tint x hillshade PNG that Blender
+# uses directly as the surface colour (shadeless), avoiding ColorRamp/lighting issues.
+WRITE_COLORMAP  = True
+COLORMAP_SCHEME = "desiccated"       # "desiccated" (dry drylands) | "bathymetric" (blue sea, green land)
+
+# ---- FLOOD along the canyon (hero shot): the megaflood as a real RIVER network
+# (D8 flow accumulation along the thalweg) plus the flooded basin, baked into the
+# colormap. The river is dendritic: tributaries converge and run down to the basin.
+# Flow accumulation uses numba if available (Anaconda ships it); without numba it
+# falls back to a simpler concave-channel flood.
+FLOOD_ALONG_CANYON     = True
+FLOOD_MIN_DRAINAGE_KM2 = 6.0         # river = cells draining > this area; smaller -> more/finer tributaries
+FLOOD_BASIN_LEVEL      = -2200.0     # also flood everything below this (the basin the flood pours into)
+FLOOD_WATER_RGB        = (0.10, 0.34, 0.55)
+# fallback params (only used if numba is unavailable):
+FLOOD_CONCAVITY_M      = 35.0
+FLOOD_SMOOTH_M         = 1500.0
+
+# ---- PERFORMANCE ----
+NUM_THREADS = 1                      # 0 = all cores; parallelises the GDAL warp/resample
 
 # =====================================================================
 # implementation
@@ -104,6 +126,74 @@ from rasterio.warp import (reproject, Resampling, transform as warp_transform,
 from rasterio.windows import from_bounds as window_from_bounds, Window, transform as win_transform
 from scipy.interpolate import griddata
 from scipy.ndimage import distance_transform_edt, gaussian_filter
+
+try:
+    from numba import njit
+    _HAVE_NUMBA = True
+except Exception:                                     # no-op decorator fallback
+    _HAVE_NUMBA = False
+    def njit(*args, **kwargs):
+        if len(args) == 1 and callable(args[0]) and not kwargs:
+            return args[0]
+        def deco(f):
+            return f
+        return deco
+
+try:
+    from skimage.morphology import reconstruction as _sk_reconstruction
+    _HAVE_SKIMAGE = True
+except Exception:
+    _HAVE_SKIMAGE = False
+
+
+def _num_threads():
+    return NUM_THREADS if (NUM_THREADS and NUM_THREADS > 0) else (os.cpu_count() or 1)
+
+
+# ---- flow-accumulation river (D8) ----
+def _fill_depressions(dem):
+    """Fill pits so flow routes to the domain edge (greyscale reconstruction by erosion)."""
+    seed = dem.copy()
+    seed[1:-1, 1:-1] = dem.max()
+    return _sk_reconstruction(seed, dem, method="erosion").astype("float32")
+
+
+@njit(cache=True)
+def _d8_accum(filled, ri, ci):
+    nr, nc = filled.shape
+    accum = np.ones((nr, nc), dtype=np.float64)
+    di = np.array([-1, -1, -1, 0, 0, 1, 1, 1])
+    dj = np.array([-1, 0, 1, -1, 1, -1, 0, 1])
+    dd = np.array([1.41421356, 1.0, 1.41421356, 1.0, 1.0, 1.41421356, 1.0, 1.41421356])
+    for k in range(ri.size):
+        i = ri[k]; j = ci[k]
+        z = filled[i, j]
+        best = 0.0; bi = -1; bj = -1
+        for m in range(8):
+            ii = i + di[m]; jj = j + dj[m]
+            if 0 <= ii < nr and 0 <= jj < nc:
+                slope = (z - filled[ii, jj]) / dd[m]
+                if slope > best:
+                    best = slope; bi = ii; bj = jj
+        if bi >= 0:
+            accum[bi, bj] += accum[i, j]
+    return accum
+
+
+def river_mask(dem, pixel_m, min_drainage_km2):
+    """River = cells whose upstream drainage area exceeds the threshold; trunk wider than tributaries."""
+    from scipy.ndimage import binary_dilation
+    filled = _fill_depressions(dem)
+    order = np.argsort(filled.ravel())[::-1]                  # high -> low
+    ri, ci = np.unravel_index(order, filled.shape)
+    accum = _d8_accum(filled, ri.astype(np.int64), ci.astype(np.int64))
+    area = accum * (pixel_m ** 2) / 1e6                       # upstream drainage area, km^2
+    out = area > min_drainage_km2
+    for mult, it in [(8, 2), (60, 3), (400, 4)]:              # widen the bigger channels
+        big = area > (min_drainage_km2 * mult)
+        if big.any():
+            out = out | binary_dilation(big, iterations=it)
+    return out
 
 try:
     from tqdm import tqdm
@@ -148,7 +238,8 @@ def _reproject_array(arr, src_transform, src_crs, dst_crs, res=None):
     dst = np.full((h, w), np.nan, "float32")
     reproject(arr, dst, src_transform=src_transform, src_crs=src_crs,
               dst_transform=dst_transform, dst_crs=dst_crs,
-              src_nodata=np.nan, dst_nodata=np.nan, resampling=Resampling.bilinear)
+              src_nodata=np.nan, dst_nodata=np.nan, resampling=Resampling.bilinear,
+              num_threads=_num_threads())
     return dst, dst_transform
 
 
@@ -236,7 +327,8 @@ def load_mes_on_grid(transform, shape, crs):
         dst = np.full(shape, np.nan, "float32")
         reproject(src, dst, src_transform=mes_transform, src_crs=mes_crs,
                   dst_transform=transform, dst_crs=crs,
-                  src_nodata=np.nan, dst_nodata=np.nan, resampling=Resampling.bilinear)
+                  src_nodata=np.nan, dst_nodata=np.nan, resampling=Resampling.bilinear,
+                  num_threads=_num_threads())
         return dst
     elif MES_FORMAT == "xyz":
         x, y, z = _read_xyz(MES_PATH, MES_XYZ_COLS, MES_XYZ_DELIM, MES_IS_DEPTH)
@@ -354,6 +446,53 @@ def write_hillshade(path, arr, pixel_m, ve=2.0, azdeg=315, altdeg=45):
     fig.savefig(path, dpi=150); plt.close(fig)
 
 
+# hypsometric stops (absolute elevation m -> RGB); MUST match render_waterfall.py
+_COLORMAP_STOPS = {
+    "desiccated": [(-4000, (0.28, 0.24, 0.22)), (-2000, (0.42, 0.34, 0.27)),
+                   (-600, (0.60, 0.49, 0.35)), (0, (0.72, 0.60, 0.42)),
+                   (700, (0.50, 0.46, 0.30)), (1700, (0.40, 0.31, 0.22)), (3000, (0.93, 0.92, 0.92))],
+    "bathymetric": [(-4000, (0.04, 0.10, 0.30)), (-2000, (0.07, 0.22, 0.48)),
+                    (-400, (0.20, 0.55, 0.62)), (0, (0.78, 0.70, 0.48)),
+                    (600, (0.36, 0.52, 0.26)), (1600, (0.45, 0.36, 0.24)), (3000, (0.95, 0.95, 0.96))],
+}
+
+
+def write_colormap(path, arr, pixel_m, ve, scheme, azdeg=315, altdeg=45, shade_lo=0.45):
+    """Bake hypsometric tint x hillshade (+ optional flood) into an 8-bit RGB PNG."""
+    from matplotlib.colors import LightSource
+    stops = _COLORMAP_STOPS.get(scheme, _COLORMAP_STOPS["desiccated"])
+    es = np.array([s[0] for s in stops], dtype="float64")
+    cols = np.array([s[1] for s in stops], dtype="float64")
+    tint = np.dstack([np.interp(arr, es, cols[:, k]) for k in range(3)])
+    hs = LightSource(azdeg=azdeg, altdeg=altdeg).hillshade(
+        arr, vert_exag=ve, dx=pixel_m, dy=pixel_m)[..., None]
+    rgb = tint * (shade_lo + (1.0 - shade_lo) * hs)
+
+    if FLOOD_ALONG_CANYON:
+        if _HAVE_NUMBA and _HAVE_SKIMAGE:
+            channel = river_mask(arr, pixel_m, FLOOD_MIN_DRAINAGE_KM2)      # dendritic D8 river
+        else:                                                              # fallback: concave channels
+            from scipy.ndimage import binary_closing, label
+            sm = gaussian_filter(arr, FLOOD_SMOOTH_M / pixel_m)
+            channel = (sm - arr) > FLOOD_CONCAVITY_M
+            channel = binary_closing(channel, iterations=2)
+            lab, n = label(channel)
+            if n:
+                sizes = np.bincount(lab.ravel()); sizes[0] = 0
+                channel = (sizes >= (2e6 / pixel_m ** 2))[lab]
+        water = channel | (arr < FLOOD_BASIN_LEVEL)
+        wrgb = np.array(FLOOD_WATER_RGB).reshape(1, 1, 3) * (0.55 + 0.45 * hs)
+        rgb = np.where(water[..., None], wrgb, rgb)
+
+    u8 = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
+    try:
+        import imageio.v2 as imageio
+        imageio.imwrite(path, u8)
+    except Exception:
+        from PIL import Image
+        Image.fromarray(u8).save(path)
+
+
 def load_mes_standalone(target_crs, pbar):
     """MES_ONLY mode: load the MES grid as the surface itself (no modern DEM, no blend)."""
     res = TARGET_RES if TARGET_RES else 25.0
@@ -409,12 +548,17 @@ def finalize(paleo, transform, crs, pbar):
     pbar.set_description("write heightmap")
     zmin, zmax = write_heightmap_png(os.path.join(OUT_DIR, OUT_HEIGHTMAP_PNG), paleo); pbar.update(1)
 
+    if WRITE_COLORMAP:
+        write_colormap(os.path.join(OUT_DIR, OUT_COLORMAP_PNG), paleo, pixel_m, VE_HINT, COLORMAP_SCHEME)
+
     pbar.set_description("write metadata")
     meta = dict(zmin_m=zmin, zmax_m=zmax,
                 width_m=paleo.shape[1] * pixel_m, height_m=paleo.shape[0] * float(abs(transform.e)),
                 ncols=int(paleo.shape[1]), nrows=int(paleo.shape[0]), pixel_m=pixel_m,
                 paleo_sea_level_m=float(PALEO_SEA_LEVEL_M), ve_hint=float(VE_HINT),
                 crs=str(crs), heightmap_png=OUT_HEIGHTMAP_PNG)
+    if WRITE_COLORMAP:
+        meta["colormap_png"] = OUT_COLORMAP_PNG
     with open(os.path.join(OUT_DIR, OUT_META_JSON), "w") as f:
         json.dump(meta, f, indent=2)
     pbar.update(1)
