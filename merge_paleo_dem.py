@@ -107,6 +107,7 @@ FLOOD_ALONG_CANYON     = True
 FLOOD_MIN_DRAINAGE_KM2 = 6.0         # river = cells draining > this area; smaller -> more/finer tributaries
 FLOOD_BASIN_LEVEL      = -2200.0     # also flood everything below this (the basin the flood pours into)
 FLOOD_WATER_RGB        = (0.10, 0.34, 0.55)
+FLOOD_RIVERS_IN_MES_ONLY = True      # in blend mode: draw rivers ONLY inside the MES coverage (not across GEBCO)
 # fallback params (only used if numba is unavailable):
 FLOOD_CONCAVITY_M      = 35.0
 FLOOD_SMOOTH_M         = 1500.0
@@ -117,7 +118,7 @@ NUM_THREADS = 1                      # 0 = all cores; parallelises the GDAL warp
 # =====================================================================
 # implementation
 # =====================================================================
-
+ 
 import rasterio
 from rasterio.crs import CRS
 from rasterio.transform import from_origin
@@ -126,7 +127,7 @@ from rasterio.warp import (reproject, Resampling, transform as warp_transform,
 from rasterio.windows import from_bounds as window_from_bounds, Window, transform as win_transform
 from scipy.interpolate import griddata
 from scipy.ndimage import distance_transform_edt, gaussian_filter
-
+ 
 try:
     from numba import njit
     _HAVE_NUMBA = True
@@ -138,26 +139,26 @@ except Exception:                                     # no-op decorator fallback
         def deco(f):
             return f
         return deco
-
+ 
 try:
     from skimage.morphology import reconstruction as _sk_reconstruction
     _HAVE_SKIMAGE = True
 except Exception:
     _HAVE_SKIMAGE = False
-
-
+ 
+ 
 def _num_threads():
     return NUM_THREADS if (NUM_THREADS and NUM_THREADS > 0) else (os.cpu_count() or 1)
-
-
+ 
+ 
 # ---- flow-accumulation river (D8) ----
 def _fill_depressions(dem):
     """Fill pits so flow routes to the domain edge (greyscale reconstruction by erosion)."""
     seed = dem.copy()
     seed[1:-1, 1:-1] = dem.max()
     return _sk_reconstruction(seed, dem, method="erosion").astype("float32")
-
-
+ 
+ 
 @njit(cache=True)
 def _d8_accum(filled, ri, ci):
     nr, nc = filled.shape
@@ -178,8 +179,8 @@ def _d8_accum(filled, ri, ci):
         if bi >= 0:
             accum[bi, bj] += accum[i, j]
     return accum
-
-
+ 
+ 
 def river_mask(dem, pixel_m, min_drainage_km2):
     """River = cells whose upstream drainage area exceeds the threshold; trunk wider than tributaries."""
     from scipy.ndimage import binary_dilation
@@ -194,7 +195,7 @@ def river_mask(dem, pixel_m, min_drainage_km2):
         if big.any():
             out = out | binary_dilation(big, iterations=it)
     return out
-
+ 
 try:
     from tqdm import tqdm
 except Exception:                                     # graceful fallback
@@ -204,8 +205,8 @@ except Exception:                                     # graceful fallback
         def set_description(self, *a, **k): pass
         def write(self, m): print(m)
         def close(self): pass
-
-
+ 
+ 
 def _read_xyz(path, cols, delim, is_depth):
     import pandas as pd
     df = pd.read_csv(path, sep=(delim if delim else r"\s+"), header=None,
@@ -217,8 +218,8 @@ def _read_xyz(path, cols, delim, is_depth):
         z = -z
     good = np.isfinite(x) & np.isfinite(y) & np.isfinite(z)
     return x[good], y[good], z[good]
-
-
+ 
+ 
 def _read_band_as_float(ds, is_depth):
     """Read band 1 as float32, NaN nodata. Avoids the int-dtype fill_value crash."""
     arr = ds.read(1).astype("float32")
@@ -228,8 +229,8 @@ def _read_band_as_float(ds, is_depth):
     if is_depth:
         arr = -arr
     return arr
-
-
+ 
+ 
 def _reproject_array(arr, src_transform, src_crs, dst_crs, res=None):
     bounds = rasterio.transform.array_bounds(arr.shape[0], arr.shape[1], src_transform)
     kw = dict(resolution=res) if res else {}
@@ -241,8 +242,8 @@ def _reproject_array(arr, src_transform, src_crs, dst_crs, res=None):
               src_nodata=np.nan, dst_nodata=np.nan, resampling=Resampling.bilinear,
               num_threads=_num_threads())
     return dst, dst_transform
-
-
+ 
+ 
 def resolve_target_crs(pbar):
     """Pick a metric target CRS. If modern DEM is geographic, fall back to the MES CRS."""
     if TARGET_CRS:
@@ -270,8 +271,8 @@ def resolve_target_crs(pbar):
         pbar.write("[merge] WARNING: target CRS is geographic (degrees). FEATHER_M and the "
                    "Blender scale assume metres. Set TARGET_CRS to a projected CRS (e.g. EPSG:32633).")
     return mcrs
-
-
+ 
+ 
 def load_modern(target_crs, pbar):
     if MODERN_DEM_FORMAT == "geotiff":
         with rasterio.open(MODERN_DEM_PATH) as ds:
@@ -286,7 +287,7 @@ def load_modern(target_crs, pbar):
             return src, src_transform, src_crs
         dst, dst_transform = _reproject_array(src, src_transform, src_crs, target_crs, TARGET_RES)
         return dst, dst_transform, target_crs
-
+ 
     elif MODERN_DEM_FORMAT == "xyz":
         if MODERN_DEM_CRS is None or TARGET_RES is None:
             raise ValueError("xyz modern DEM requires MODERN_DEM_CRS and TARGET_RES.")
@@ -303,8 +304,8 @@ def load_modern(target_crs, pbar):
         return arr, transform, src_crs
     else:
         raise ValueError(f"Unknown MODERN_DEM_FORMAT: {MODERN_DEM_FORMAT}")
-
-
+ 
+ 
 def _cell_centers(transform, nrows, ncols):
     cols = np.arange(ncols) + 0.5
     rows = np.arange(nrows) + 0.5
@@ -312,8 +313,8 @@ def _cell_centers(transform, nrows, ncols):
     gx = transform.c + cc * transform.a + rr * transform.b
     gy = transform.f + cc * transform.d + rr * transform.e
     return gx, gy
-
-
+ 
+ 
 def load_mes_on_grid(transform, shape, crs):
     nrows, ncols = shape
     if MES_FORMAT == "geotiff":
@@ -341,16 +342,16 @@ def load_mes_on_grid(transform, shape, crs):
         return dst.astype("float32")
     else:
         raise ValueError(f"Unknown MES_FORMAT: {MES_FORMAT}")
-
-
+ 
+ 
 def fill_nan_nearest(arr):
     mask = ~np.isfinite(arr)
     if not mask.any():
         return arr
     idx = distance_transform_edt(mask, return_distances=False, return_indices=True)
     return arr[tuple(idx)]
-
-
+ 
+ 
 def feather_blend(modern, mes, pixel_m, pbar):
     coverage = np.isfinite(mes)
     if not coverage.any():
@@ -364,11 +365,11 @@ def feather_blend(modern, mes, pixel_m, pbar):
     mes_filled = np.where(coverage, mes, modern)
     merged = w * mes_filled + (1.0 - w) * modern
     return merged.astype("float32"), coverage
-
-
+ 
+ 
 def warp_blend(modern, mes, pixel_m, pbar):
     """Warp the modern DEM toward the MES at the seam, decaying the offset outward.
-
+ 
     merged = MES                              inside coverage   (full detail kept)
            = modern + offset * decay(dist)    outside coverage
     where offset == (MES - modern) at the nearest seam point and decay falls from
@@ -380,44 +381,44 @@ def warp_blend(modern, mes, pixel_m, pbar):
         pbar.write("[merge] WARNING: MES does not overlap the modern grid (0% coverage). "
                    "Returning modern DEM only.")
         return modern.copy(), coverage
-
+ 
     # offset where the MES exists, then nearest-extrapolate it to the whole grid
     delta = np.where(coverage, mes - modern, np.nan).astype("float32")
     idx = distance_transform_edt(~coverage, return_distances=False, return_indices=True)
     delta_ext = delta[tuple(idx)]                      # nearest seam offset everywhere
-
+ 
     # smooth the offset field to remove nearest-neighbour facets
     sigma_px = max(WARP_SMOOTH_M / pixel_m, 0.0)
     if sigma_px > 0.3:
         delta_ext = gaussian_filter(delta_ext, sigma_px)
-
+ 
     # decay outward from the seam over WARP_LENGTH_M (smoothstep: 1 -> 0)
     dist_out = distance_transform_edt(~coverage) * pixel_m
     t = np.clip(dist_out / max(WARP_LENGTH_M, 1e-6), 0.0, 1.0)
     decay = 1.0 - (3.0 * t**2 - 2.0 * t**3)
-
+ 
     merged = np.where(coverage, mes, modern + delta_ext * decay)
     pbar.write(f"[merge] warp: seam offset median {np.nanmedian(np.abs(delta[coverage])):.0f} m, "
                f"decay length {WARP_LENGTH_M/1000:.0f} km")
     return merged.astype("float32"), coverage
-
-
+ 
+ 
 def apply_subsidence(elev):
     if not APPLY_SUBSIDENCE:
         return elev
     denom = (SUBSIDENCE_ELEV_TOP - SUBSIDENCE_ELEV_FULL)
     ramp = np.clip((SUBSIDENCE_ELEV_TOP - elev) / denom, 0.0, 1.0)
     return (elev + SUBSIDENCE_M * ramp).astype("float32")
-
-
+ 
+ 
 def write_geotiff(path, arr, transform, crs):
     profile = dict(driver="GTiff", height=arr.shape[0], width=arr.shape[1], count=1,
                    dtype="float32", crs=crs, transform=transform, nodata=np.nan,
                    compress="deflate")
     with rasterio.open(path, "w", **profile) as ds:
         ds.write(arr, 1)
-
-
+ 
+ 
 def write_heightmap_png(path, arr):
     finite = arr[np.isfinite(arr)]
     zmin, zmax = float(finite.min()), float(finite.max())
@@ -430,8 +431,8 @@ def write_heightmap_png(path, arr):
         from PIL import Image
         Image.fromarray(u16.astype(np.int32), mode="I").save(path)
     return zmin, zmax
-
-
+ 
+ 
 def write_hillshade(path, arr, pixel_m, ve=2.0, azdeg=315, altdeg=45):
     import matplotlib
     matplotlib.use("Agg")
@@ -444,8 +445,8 @@ def write_hillshade(path, arr, pixel_m, ve=2.0, azdeg=315, altdeg=45):
     fig = plt.figure(figsize=(w / 150, h / 150), dpi=150)
     ax = fig.add_axes([0, 0, 1, 1]); ax.axis("off"); ax.imshow(rgb)
     fig.savefig(path, dpi=150); plt.close(fig)
-
-
+ 
+ 
 # hypsometric stops (absolute elevation m -> RGB); MUST match render_waterfall.py
 _COLORMAP_STOPS = {
     "desiccated": [(-4000, (0.28, 0.24, 0.22)), (-2000, (0.42, 0.34, 0.27)),
@@ -455,10 +456,17 @@ _COLORMAP_STOPS = {
                     (-400, (0.20, 0.55, 0.62)), (0, (0.78, 0.70, 0.48)),
                     (600, (0.36, 0.52, 0.26)), (1600, (0.45, 0.36, 0.24)), (3000, (0.95, 0.95, 0.96))],
 }
-
-
-def write_colormap(path, arr, pixel_m, ve, scheme, azdeg=315, altdeg=45, shade_lo=0.45):
-    """Bake hypsometric tint x hillshade (+ optional flood) into an 8-bit RGB PNG."""
+ 
+ 
+def write_colormap(path, arr, pixel_m, ve, scheme, coverage=None,
+                   azdeg=315, altdeg=45, shade_lo=0.45):
+    """Bake hypsometric tint x hillshade (+ optional flood) into an 8-bit RGB PNG.
+ 
+    coverage (optional bool mask): where the MES exists. If FLOOD_RIVERS_IN_MES_ONLY,
+    rivers are drawn only inside it (the GEBCO context stays river-free), while flow
+    accumulation is still computed on the full grid so canyon rivers get their full
+    upstream catchment.
+    """
     from matplotlib.colors import LightSource
     stops = _COLORMAP_STOPS.get(scheme, _COLORMAP_STOPS["desiccated"])
     es = np.array([s[0] for s in stops], dtype="float64")
@@ -467,7 +475,7 @@ def write_colormap(path, arr, pixel_m, ve, scheme, azdeg=315, altdeg=45, shade_l
     hs = LightSource(azdeg=azdeg, altdeg=altdeg).hillshade(
         arr, vert_exag=ve, dx=pixel_m, dy=pixel_m)[..., None]
     rgb = tint * (shade_lo + (1.0 - shade_lo) * hs)
-
+ 
     if FLOOD_ALONG_CANYON:
         if _HAVE_NUMBA and _HAVE_SKIMAGE:
             channel = river_mask(arr, pixel_m, FLOOD_MIN_DRAINAGE_KM2)      # dendritic D8 river
@@ -480,10 +488,12 @@ def write_colormap(path, arr, pixel_m, ve, scheme, azdeg=315, altdeg=45, shade_l
             if n:
                 sizes = np.bincount(lab.ravel()); sizes[0] = 0
                 channel = (sizes >= (2e6 / pixel_m ** 2))[lab]
+        if coverage is not None and FLOOD_RIVERS_IN_MES_ONLY:
+            channel = channel & coverage                                   # rivers only in the MES part
         water = channel | (arr < FLOOD_BASIN_LEVEL)
         wrgb = np.array(FLOOD_WATER_RGB).reshape(1, 1, 3) * (0.55 + 0.45 * hs)
         rgb = np.where(water[..., None], wrgb, rgb)
-
+ 
     u8 = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
     try:
         import imageio.v2 as imageio
@@ -491,8 +501,8 @@ def write_colormap(path, arr, pixel_m, ve, scheme, azdeg=315, altdeg=45, shade_l
     except Exception:
         from PIL import Image
         Image.fromarray(u8).save(path)
-
-
+ 
+ 
 def load_mes_standalone(target_crs, pbar):
     """MES_ONLY mode: load the MES grid as the surface itself (no modern DEM, no blend)."""
     res = TARGET_RES if TARGET_RES else 25.0
@@ -526,8 +536,8 @@ def load_mes_standalone(target_crs, pbar):
         return arr, transform, dst_crs
     else:
         raise ValueError(f"Unknown MES_FORMAT: {MES_FORMAT}")
-
-
+ 
+ 
 def _crop(arr, transform):
     if CROP_BBOX is None:
         return arr, transform
@@ -536,21 +546,22 @@ def _crop(arr, transform):
     c0, c1 = max(int(round(win.col_off)), 0), min(int(round(win.col_off + win.width)), arr.shape[1])
     arr = arr[r0:r1, c0:c1]
     return arr, win_transform(Window(c0, r0, c1 - c0, r1 - r0), transform)
-
-
-def finalize(paleo, transform, crs, pbar):
+ 
+ 
+def finalize(paleo, transform, crs, pbar, coverage=None):
     """Write GeoTIFF + 16-bit heightmap + metadata + QC hillshade."""
     pixel_m = float(abs(transform.a))
-
+ 
     pbar.set_description("write GeoTIFF")
     write_geotiff(os.path.join(OUT_DIR, OUT_GEOTIFF), paleo, transform, crs); pbar.update(1)
-
+ 
     pbar.set_description("write heightmap")
     zmin, zmax = write_heightmap_png(os.path.join(OUT_DIR, OUT_HEIGHTMAP_PNG), paleo); pbar.update(1)
-
+ 
     if WRITE_COLORMAP:
-        write_colormap(os.path.join(OUT_DIR, OUT_COLORMAP_PNG), paleo, pixel_m, VE_HINT, COLORMAP_SCHEME)
-
+        write_colormap(os.path.join(OUT_DIR, OUT_COLORMAP_PNG), paleo, pixel_m,
+                       VE_HINT, COLORMAP_SCHEME, coverage=coverage)
+ 
     pbar.set_description("write metadata")
     meta = dict(zmin_m=zmin, zmax_m=zmax,
                 width_m=paleo.shape[1] * pixel_m, height_m=paleo.shape[0] * float(abs(transform.e)),
@@ -562,20 +573,20 @@ def finalize(paleo, transform, crs, pbar):
     with open(os.path.join(OUT_DIR, OUT_META_JSON), "w") as f:
         json.dump(meta, f, indent=2)
     pbar.update(1)
-
+ 
     pbar.set_description("write hillshade")
     write_hillshade(os.path.join(OUT_DIR, OUT_HILLSHADE), paleo, pixel_m, ve=VE_HINT); pbar.update(1)
     pbar.close()
-
+ 
     print(f"\n[merge] done. {paleo.shape[1]}x{paleo.shape[0]} px @ {pixel_m:.0f} m | "
           f"z {zmin:.0f}..{zmax:.0f} m | palaeo sea level {PALEO_SEA_LEVEL_M:.0f} m | VE {VE_HINT}")
     print(f"[merge] -> check {os.path.join(OUT_DIR, OUT_HILLSHADE)} (canyon clear? seam OK?)")
     print(f"[merge] -> then load in Blender via render_waterfall.py")
-
-
+ 
+ 
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
-
+ 
     # -------------------- MES-only (canyon hero shot) --------------------
     if MES_ONLY:
         pbar = tqdm(total=6, bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]")
@@ -592,40 +603,41 @@ def main():
         paleo = apply_subsidence(paleo)
         finalize(paleo, transform, crs, pbar)
         return
-
+ 
     # -------------------- modern + MES blend (context shot) --------------
     stages = ["resolve CRS", "load modern DEM", "regrid MES", "fill nodata",
               "feather-blend", "subsidence", "write GeoTIFF", "write heightmap",
               "write metadata", "write hillshade"]
     pbar = tqdm(total=len(stages), bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}]")
-
+ 
     pbar.set_description("resolve CRS")
     target_crs = resolve_target_crs(pbar); pbar.update(1)
-
+ 
     pbar.set_description("load modern DEM")
     modern, transform, crs = load_modern(target_crs, pbar)
     modern, transform = _crop(modern, transform)
     pixel_m = float(abs(transform.a))
     pbar.write(f"[merge] grid: {modern.shape[1]}x{modern.shape[0]} px @ {pixel_m:.1f} m  CRS={crs}")
     pbar.update(1)
-
+ 
     pbar.set_description("regrid MES")
     mes = load_mes_on_grid(transform, modern.shape, crs)
     pbar.write(f"[merge] MES coverage of grid: {np.isfinite(mes).mean()*100:.1f} %")
     pbar.update(1)
-
+ 
     pbar.set_description("fill nodata"); modern = fill_nan_nearest(modern); pbar.update(1)
     pbar.set_description("warp-blend" if WARP_BACKGROUND_TO_MES else "feather-blend")
     if WARP_BACKGROUND_TO_MES:
-        merged, _ = warp_blend(modern, mes, pixel_m, pbar)
+        merged, coverage = warp_blend(modern, mes, pixel_m, pbar)
     else:
-        merged, _ = feather_blend(modern, mes, pixel_m, pbar)
+        merged, coverage = feather_blend(modern, mes, pixel_m, pbar)
     pbar.update(1)
     pbar.set_description("subsidence")
     paleo = fill_nan_nearest(apply_subsidence(merged)); pbar.update(1)
-
-    finalize(paleo, transform, crs, pbar)
-
-
+ 
+    finalize(paleo, transform, crs, pbar, coverage=coverage)
+ 
+ 
 if __name__ == "__main__":
     main()
+ 
