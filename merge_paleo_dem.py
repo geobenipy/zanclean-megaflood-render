@@ -57,7 +57,7 @@ MES_ONLY = False
 
 # ---- TARGET GRID ----
 TARGET_CRS = None                    # None = auto (picks EPSG:32633 from MES_CRS, since GEBCO is geographic)
-TARGET_RES = None                    # None = auto (~450 m from GEBCO); or metres (e.g. 100) for a canyon crop
+TARGET_RES = 50                    # None = auto (~450 m from GEBCO); or metres (e.g. 100) for a canyon crop
 CROP_BBOX  = (380000, 3980000, 660000, 4180000)                 # None = full extent; or (xmin,ymin,xmax,ymax) in TARGET CRS (metres!)
 
 # ---- SEAM FEATHER ----
@@ -85,7 +85,7 @@ SUBSIDENCE_ELEV_FULL  = -2300.0      # below this elevation: full correction (sm
 PALEO_SEA_LEVEL_M = -2000.0          # desiccated lowstand relative to present sea level
 
 # ---- OUTPUT ----
-OUT_DIR           = "output"
+OUT_DIR           = "outputm"  # output folder (created if missing)
 OUT_GEOTIFF       = "merged_paleo_dem.tif"
 OUT_HEIGHTMAP_PNG = "heightmap_16bit.png"
 OUT_META_JSON     = "heightmap_meta.json"
@@ -97,6 +97,7 @@ VE_HINT           = 3.0              # suggested vertical exaggeration for the r
 # uses directly as the surface colour (shadeless), avoiding ColorRamp/lighting issues.
 WRITE_COLORMAP  = True
 COLORMAP_SCHEME = "desiccated"       # "desiccated" (dry drylands) | "bathymetric" (blue sea, green land)
+COLORMAP_HILLSHADE = False            # bake hillshade into colour (map look). False for PHOTOREAL.
 
 # ---- FLOOD along the canyon (hero shot): the megaflood as a real RIVER network
 # (D8 flow accumulation along the thalweg) plus the flooded basin, baked into the
@@ -104,13 +105,28 @@ COLORMAP_SCHEME = "desiccated"       # "desiccated" (dry drylands) | "bathymetri
 # Flow accumulation uses numba if available (Anaconda ships it); without numba it
 # falls back to a simpler concave-channel flood.
 FLOOD_ALONG_CANYON     = True
-FLOOD_MIN_DRAINAGE_KM2 = 6.0         # river = cells draining > this area; smaller -> more/finer tributaries
+FLOOD_MIN_DRAINAGE_KM2 = 4.0         # river = cells draining > this area; smaller -> more/finer tributaries
 FLOOD_BASIN_LEVEL      = -2200.0     # also flood everything below this (the basin the flood pours into)
 FLOOD_WATER_RGB        = (0.10, 0.34, 0.55)
 FLOOD_RIVERS_IN_MES_ONLY = True      # in blend mode: draw rivers ONLY inside the MES coverage (not across GEBCO)
 # fallback params (only used if numba is unavailable):
 FLOOD_CONCAVITY_M      = 35.0
 FLOOD_SMOOTH_M         = 1500.0
+
+# ---- ZANCLEAN MEGAFLOOD VISUALISATION ----
+# Overlays a wide, turbid flood corridor on top of the D8 rivers to simulate
+# the Zanclean megaflood entering the desiccated Mediterranean basin.
+# The corridor enters from the western grid edge (Gibraltar direction) and
+# narrows toward the canyon.  Restricted to MES coverage in blend mode.
+ZANCLEAN_FLOOD          = True
+ZANCLEAN_ENTRY_ELEV_M   = -500.0    # cells below this elevation in the eastern basin portion seed the corridor
+ZANCLEAN_ENTRY_FRACTION = 0.45      # fraction of grid width covered by the entry zone (measured from east/right edge)
+ZANCLEAN_CHANNEL_KM     = 12.0      # full width (km) of the flood corridor within the MES
+ZANCLEAN_DEEP_NAVY      = (0.04, 0.10, 0.30)   # deep basin (below FLOOD_BASIN_LEVEL)
+ZANCLEAN_ATLANTIC_RGB   = (0.09, 0.26, 0.54)   # clean basin water at entry (east edge = Ionian Sea)
+ZANCLEAN_TURBID_RGB     = (0.20, 0.29, 0.38)   # turbid sediment-laden front (west = canyon head)
+ZANCLEAN_FOAM_RGB       = (0.72, 0.85, 0.92)   # white-blue foam/spray at the cascade lip
+ZANCLEAN_CASCADE_SLOPE  = 0.80      # gradient threshold (m/m) for the cascade/foam zone
 
 # ---- PERFORMANCE ----
 NUM_THREADS = 1                      # 0 = all cores; parallelises the GDAL warp/resample
@@ -182,18 +198,26 @@ def _d8_accum(filled, ri, ci):
  
  
 def river_mask(dem, pixel_m, min_drainage_km2):
-    """River = cells whose upstream drainage area exceeds the threshold; trunk wider than tributaries."""
-    from scipy.ndimage import binary_dilation
+    """River mask with megaflood-scale trunk width.
+
+    Uses distance_transform_edt (O(n), fast) instead of many binary_dilation
+    iterations.  Progressive widening by drainage area:
+      minor tributaries → 1 km  |  main tributaries → 3 km
+      canyon trunk      → 8 km  |  megaflood trunk  → 16 km
+    """
+    from scipy.ndimage import distance_transform_edt
     filled = _fill_depressions(dem)
-    order = np.argsort(filled.ravel())[::-1]                  # high -> low
+    order = np.argsort(filled.ravel())[::-1]
     ri, ci = np.unravel_index(order, filled.shape)
     accum = _d8_accum(filled, ri.astype(np.int64), ci.astype(np.int64))
-    area = accum * (pixel_m ** 2) / 1e6                       # upstream drainage area, km^2
-    out = area > min_drainage_km2
-    for mult, it in [(8, 2), (60, 3), (400, 4)]:              # widen the bigger channels
-        big = area > (min_drainage_km2 * mult)
+    area = accum * (pixel_m ** 2) / 1e6                       # upstream area, km²
+    out = area > min_drainage_km2                              # base channel mask
+    # (drainage threshold km², half-width m)
+    for thresh_mult, half_w_m in [(8, 200), (60, 600), (400, 1500), (2000, 3000)]:
+        big = area > (min_drainage_km2 * thresh_mult)
         if big.any():
-            out = out | binary_dilation(big, iterations=it)
+            dist_m = distance_transform_edt(~big) * pixel_m
+            out = out | (dist_m < half_w_m)
     return out
  
 try:
@@ -460,26 +484,37 @@ _COLORMAP_STOPS = {
  
 def write_colormap(path, arr, pixel_m, ve, scheme, coverage=None,
                    azdeg=315, altdeg=45, shade_lo=0.45):
-    """Bake hypsometric tint x hillshade (+ optional flood) into an 8-bit RGB PNG.
- 
-    coverage (optional bool mask): where the MES exists. If FLOOD_RIVERS_IN_MES_ONLY,
-    rivers are drawn only inside it (the GEBCO context stays river-free), while flow
-    accumulation is still computed on the full grid so canyon rivers get their full
-    upstream catchment.
+    """Bake hypsometric tint × hillshade + flood overlay into an 8-bit RGB PNG.
+
+    Flood layers (applied in order, last wins):
+      1. D8 river channels (wide, megaflood-scale trunk)
+      2. Deep basin below FLOOD_BASIN_LEVEL  →  dark navy
+      3. Zanclean corridor from Gibraltar (west edge)  →  turbid/Atlantic gradient
+      4. Cascade/foam at steepest descent within corridor  →  white-blue
+
+    coverage: bool mask where MES exists; restricts flood to MES area in blend mode.
     """
     from matplotlib.colors import LightSource
+    from scipy.ndimage import distance_transform_edt
+
     stops = _COLORMAP_STOPS.get(scheme, _COLORMAP_STOPS["desiccated"])
-    es = np.array([s[0] for s in stops], dtype="float64")
+    es   = np.array([s[0] for s in stops], dtype="float64")
     cols = np.array([s[1] for s in stops], dtype="float64")
     tint = np.dstack([np.interp(arr, es, cols[:, k]) for k in range(3)])
-    hs = LightSource(azdeg=azdeg, altdeg=altdeg).hillshade(
-        arr, vert_exag=ve, dx=pixel_m, dy=pixel_m)[..., None]
+    hs   = LightSource(azdeg=azdeg, altdeg=altdeg).hillshade(
+        arr, vert_exag=ve, dx=pixel_m, dy=pixel_m)[..., None]   # (H, W, 1)
+    if not COLORMAP_HILLSHADE:
+        hs = np.ones_like(hs)
     rgb = tint * (shade_lo + (1.0 - shade_lo) * hs)
- 
+
+    # ------------------------------------------------------------------
+    # Layer 1: D8 river channels + deep basin
+    # ------------------------------------------------------------------
+    channel = None   # may be set below; needed by layer 2
     if FLOOD_ALONG_CANYON:
         if _HAVE_NUMBA and _HAVE_SKIMAGE:
-            channel = river_mask(arr, pixel_m, FLOOD_MIN_DRAINAGE_KM2)      # dendritic D8 river
-        else:                                                              # fallback: concave channels
+            channel = river_mask(arr, pixel_m, FLOOD_MIN_DRAINAGE_KM2)
+        else:                                                    # fallback: concave channels
             from scipy.ndimage import binary_closing, label
             sm = gaussian_filter(arr, FLOOD_SMOOTH_M / pixel_m)
             channel = (sm - arr) > FLOOD_CONCAVITY_M
@@ -487,13 +522,56 @@ def write_colormap(path, arr, pixel_m, ve, scheme, coverage=None,
             lab, n = label(channel)
             if n:
                 sizes = np.bincount(lab.ravel()); sizes[0] = 0
-                channel = (sizes >= (2e6 / pixel_m ** 2))[lab]
+                channel = (sizes >= (10e6 / pixel_m ** 2))[lab]
         if coverage is not None and FLOOD_RIVERS_IN_MES_ONLY:
-            channel = channel & coverage                                   # rivers only in the MES part
-        water = channel | (arr < FLOOD_BASIN_LEVEL)
-        wrgb = np.array(FLOOD_WATER_RGB).reshape(1, 1, 3) * (0.55 + 0.45 * hs)
-        rgb = np.where(water[..., None], wrgb, rgb)
- 
+            channel = channel & coverage
+
+        basin    = arr < FLOOD_BASIN_LEVEL
+        deep_rgb = np.array(ZANCLEAN_DEEP_NAVY if ZANCLEAN_FLOOD else (0.04, 0.10, 0.30))
+        river_rgb   = np.array(FLOOD_WATER_RGB)
+
+        wrgb = np.where(basin[..., None],
+                        deep_rgb.reshape(1, 1, 3),
+                        river_rgb.reshape(1, 1, 3))
+        wrgb = wrgb * (0.50 + 0.50 * hs)
+        rgb  = np.where((channel | basin)[..., None], wrgb, rgb)
+    else:
+        basin = arr < FLOOD_BASIN_LEVEL
+
+    # ------------------------------------------------------------------
+    # Layer 2: Zanclean waterfall zone
+    # Canyon rivers flow across the dry MES and PLUNGE over the escarpment
+    # into the deep basin — not the other way around.
+    # We paint the zone directly ABOVE the basin rim where rivers spill over.
+    # ------------------------------------------------------------------
+    if ZANCLEAN_FLOOD:
+        # How far upslope from the basin boundary to paint (half-width in m)
+        half_w_m = ZANCLEAN_CHANNEL_KM * 500.0
+        dist_to_basin_m = distance_transform_edt(~basin) * pixel_m  # distance upslope from basin
+
+        # Waterfall zone: upslope fringe of the basin rim, not in the basin itself
+        waterfall_zone = (dist_to_basin_m < half_w_m) & ~basin
+        # Restrict to where rivers actually flow (canyon thalweg, not full rim)
+        if channel is not None:
+            waterfall_zone = waterfall_zone & channel
+        # Stay in MES area to avoid GEBCO background shelf artefacts
+        if coverage is not None:
+            waterfall_zone = waterfall_zone & coverage
+
+        if waterfall_zone.any():
+            gy, gx = np.gradient(arr, pixel_m)
+            steep  = (np.hypot(gx, gy) > ZANCLEAN_CASCADE_SLOPE) & waterfall_zone
+
+            water_col = np.array(ZANCLEAN_ATLANTIC_RGB, dtype="float32")
+            foam_col  = np.array(ZANCLEAN_FOAM_RGB,     dtype="float32")
+
+            casc_rgb = np.where(steep[..., None],
+                                 foam_col[None, None, :] * 0.65 + water_col[None, None, :] * 0.35,
+                                 water_col[None, None, :])
+            casc_rgb = casc_rgb * (0.50 + 0.50 * hs)
+
+            rgb = np.where(waterfall_zone[..., None], casc_rgb, rgb)
+
     u8 = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
     try:
         import imageio.v2 as imageio
