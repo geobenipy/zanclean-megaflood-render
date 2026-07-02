@@ -85,12 +85,13 @@ SUBSIDENCE_ELEV_FULL  = -2300.0      # below this elevation: full correction (sm
 PALEO_SEA_LEVEL_M = -2000.0          # desiccated lowstand relative to present sea level
 
 # ---- OUTPUT ----
-OUT_DIR           = "outputm"  # output folder (created if missing)
+OUT_DIR           = "output"  # output folder (created if missing)
 OUT_GEOTIFF       = "merged_paleo_dem.tif"
 OUT_HEIGHTMAP_PNG = "heightmap_16bit.png"
 OUT_META_JSON     = "heightmap_meta.json"
 OUT_HILLSHADE     = "hillshade_qc.png"
 OUT_COLORMAP_PNG  = "colormap.png"
+OUT_FLOOD_CORRIDOR_PNG = "flood_corridor.png"   # RGB: R=corridor coverage, G=along-path 0..1, B=foam
 VE_HINT           = 3.0              # suggested vertical exaggeration for the render (written to meta)
 
 # ---- BAKED COLOUR (recommended): a hypsometric tint x hillshade PNG that Blender
@@ -127,6 +128,70 @@ ZANCLEAN_ATLANTIC_RGB   = (0.09, 0.26, 0.54)   # clean basin water at entry (eas
 ZANCLEAN_TURBID_RGB     = (0.20, 0.29, 0.38)   # turbid sediment-laden front (west = canyon head)
 ZANCLEAN_FOAM_RGB       = (0.72, 0.85, 0.92)   # white-blue foam/spray at the cascade lip
 ZANCLEAN_CASCADE_SLOPE  = 0.80      # gradient threshold (m/m) for the cascade/foam zone
+
+# ---- ZANCLEAN MEGAFLOOD CORRIDOR (mask-driven, hand-traced route) ----
+# The D8 rivers above look like normal rivers because they ARE (flow accumulation).
+# The Zanclean flood was the largest flood in Earth history - one colossal torrent,
+# not a dendritic network. So instead of guessing the route from the DEM, you TRACE
+# it yourself: open colormap.png, read the waypoints of the route you want off the
+# image, list them below. The script rasterises a wide, tapering corridor along that
+# polyline: clean Atlantic blue at the inlet -> turbid sediment toward the canyon ->
+# white foam where it plunges over the escarpment. This is the megaflood "mask".
+# It is painted ON TOP of everything else (D8 rivers stay as fine feeder streams;
+# set FLOOD_ALONG_CANYON=False if you want ONLY the trunk).
+MEGAFLOOD_CORRIDOR = True
+
+# How you give the path:
+#   "image" = fractions of colormap.png, (fx, fy) with (0,0)=TOP-LEFT, (1,1)=BOTTOM-
+#             RIGHT. Easiest: eyeball the pixel of each bend, divide by width/height.
+#   "crs"   = target-CRS metres (x_east, y_north), read precisely off QGIS.
+MEGAFLOOD_PATH_UNITS = "image"
+
+# Waypoints ALONG the flood, ordered SOURCE (Gibraltar/inlet) -> PLUNGE. The default
+# traces the trunk visible in your render: enters lower-left, runs NE across the dry
+# basin, converges at the canyon head, plunges E into the Ionian. RETRACE THESE to
+# match the blue route you drew - this is just a starting point.
+MEGAFLOOD_PATH = [
+    (0.06, 0.74),   # SW inlet  (from the Gibraltar direction, off-frame)
+    (0.16, 0.68),
+    (0.30, 0.62),
+    (0.42, 0.57),
+    (0.50, 0.54),   # canyon head / convergence
+    (0.545, 0.53),  # escarpment lip  (the waterfall)
+    (0.58, 0.53),   # plunge / plume into the Ionian
+]
+
+# Corridor HALF-width in km at each waypoint (list same length as MEGAFLOOD_PATH, OR
+# a single number for constant width). The flood is huge upstream, pinches through
+# the canyon head, then fans out as a plume. These are half-widths, so 24 -> a 48 km
+# wide torrent at the inlet. Tune freely - bigger = more dramatic.
+MEGAFLOOD_HALFWIDTH_KM = [24, 20, 16, 11, 6, 5, 15]
+
+# Soft edge (km) feathered onto the corridor rim so it reads as a torrent, not a canal.
+MEGAFLOOD_FEATHER_KM = 3.0
+
+# Whitewater band (km) painted upslope of the basin rim where the flood goes over.
+# Robust to DEM smoothing (keyed to the rim, not just local slope). Unioned with the
+# slope-based foam (ZANCLEAN_CASCADE_SLOPE) for extra texture on steep real data.
+MEGAFLOOD_FOAM_BAND_KM = 2.0
+
+# Confine the flood to low ground (fills valleys, spares ridges) vs. overtop
+# everything. A megaflood largely overtops -> False gives the most dramatic sheet.
+# True clips the corridor to cells below MEGAFLOOD_FILL_ELEV_M (hydrologically tidier).
+MEGAFLOOD_CONFINE_TO_LOW = False
+MEGAFLOOD_FILL_ELEV_M    = 300.0
+
+# Clean Atlantic -> turbid gradient along the corridor (False = uniform turbid).
+MEGAFLOOD_TURBID_RAMP = True
+
+# Also carve the corridor DOWN into the heightmap so the 3D render shows an incised
+# scour megachannel. 0 = paint colour only, no geometry change (safe default).
+# A value like 150-400 m gives a visible flood-scoured trough. Tapered by corridor weight.
+MEGAFLOOD_SCOUR_M = 0.0
+
+# Export flood_corridor.png (RGB: R=coverage, G=along-path 0..1, B=foam) so the
+# Blender script can build a real 3D flood water sheet + a "flood rolls in" animation.
+MEGAFLOOD_WRITE_MASK = True
 
 # ---- PERFORMANCE ----
 NUM_THREADS = 1                      # 0 = all cores; parallelises the GDAL warp/resample
@@ -482,8 +547,115 @@ _COLORMAP_STOPS = {
 }
  
  
+
+# =====================================================================
+# mask-driven megaflood corridor  (validated in _validate_corridor.py)
+# =====================================================================
+def _megaflood_points_px(shape, transform=None):
+    """Path waypoints -> (row, col) pixel coordinates."""
+    H, W = shape
+    out = []
+    if MEGAFLOOD_PATH_UNITS == "image":
+        for fx, fy in MEGAFLOOD_PATH:
+            out.append((fy * (H - 1), fx * (W - 1)))
+    elif MEGAFLOOD_PATH_UNITS == "crs":
+        if transform is None:
+            raise ValueError("MEGAFLOOD_PATH_UNITS='crs' needs the grid transform.")
+        inv = ~transform
+        for x, y in MEGAFLOOD_PATH:
+            col, row = inv * (x, y)
+            out.append((row, col))
+    else:
+        raise ValueError("MEGAFLOOD_PATH_UNITS must be 'image' or 'crs'")
+    return out
+
+
+def _megaflood_halfwidths_px(pixel_m, n):
+    """Per-waypoint half-widths (km in config) -> pixels; resampled to n points."""
+    hw = MEGAFLOOD_HALFWIDTH_KM
+    hw = [float(hw)] * n if np.isscalar(hw) else list(map(float, hw))
+    if len(hw) != n:
+        xi = np.linspace(0, len(hw) - 1, n)
+        hw = list(np.interp(xi, np.arange(len(hw)), hw))
+    return [w * 1000.0 / pixel_m for w in hw]
+
+
+def _densify_polyline(pts, halfw_px):
+    """Sample the polyline at ~1 px spacing, carrying along-param + half-width."""
+    pts = np.asarray(pts, float)
+    hw  = np.asarray(halfw_px, float)
+    seg = np.hypot(np.diff(pts[:, 0]), np.diff(pts[:, 1]))
+    cum = np.concatenate([[0.0], np.cumsum(seg)])
+    tv  = cum / max(cum[-1], 1e-9)                    # along-param 0..1 at vertices
+    rows, cols, alo, wid = [], [], [], []
+    for i in range(len(pts) - 1):
+        n = max(int(seg[i]) + 1, 2)
+        s = np.linspace(0.0, 1.0, n)
+        rows.append(pts[i, 0] + s * (pts[i + 1, 0] - pts[i, 0]))
+        cols.append(pts[i, 1] + s * (pts[i + 1, 1] - pts[i, 1]))
+        alo.append(tv[i]  + s * (tv[i + 1]  - tv[i]))
+        wid.append(hw[i]  + s * (hw[i + 1]  - hw[i]))
+    return (np.concatenate(rows), np.concatenate(cols),
+            np.concatenate(alo),  np.concatenate(wid))
+
+
+def rasterize_megaflood_corridor(shape, pixel_m, transform=None):
+    """Rasterise the flood path into (weight, along).
+
+    weight: float 0..1 corridor coverage, 1 in the trunk, feathering to 0 at the rim.
+    along : float 0..1 source->plunge (drives the turbidity gradient), NaN outside.
+    Densify the polyline, stamp along-param + half-width at each sample pixel, then
+    propagate nearest via distance_transform_edt (O(n), handles self-crossings).
+    """
+    H, W = shape
+    pts = _megaflood_points_px(shape, transform)
+    halfw_px = _megaflood_halfwidths_px(pixel_m, len(pts))
+    rr, cc, tt, ww = _densify_polyline(pts, halfw_px)
+    ri = np.clip(np.round(rr).astype(int), 0, H - 1)
+    ci = np.clip(np.round(cc).astype(int), 0, W - 1)
+
+    seed_along = np.full((H, W), np.nan, "float32")
+    seed_halfw = np.full((H, W), np.nan, "float32")
+    seed_along[ri, ci] = tt.astype("float32")
+    seed_halfw[ri, ci] = ww.astype("float32")
+
+    seeded = np.isfinite(seed_along)
+    dist_px, idx = distance_transform_edt(~seeded, return_distances=True,
+                                          return_indices=True)
+    along   = seed_along[tuple(idx)]
+    halfw_m = seed_halfw[tuple(idx)] * pixel_m
+    dist_m  = dist_px * pixel_m
+
+    feather_m = max(MEGAFLOOD_FEATHER_KM * 1000.0, 1e-6)
+    weight = np.clip((halfw_m + feather_m - dist_m) / feather_m, 0.0, 1.0)
+    weight = np.where(dist_m <= halfw_m, 1.0, weight).astype("float32")
+    along  = np.where(weight > 0, along, np.nan).astype("float32")
+    return weight, along
+
+
+def megaflood_foam(arr, pixel_m, basin):
+    """Whitewater field 0..1: basin-rim band (robust) unioned with steep local slope."""
+    band_m = max(MEGAFLOOD_FOAM_BAND_KM * 1000.0, 1e-6)
+    dist_rim_m = distance_transform_edt(~basin) * pixel_m
+    lip = np.clip(1.0 - dist_rim_m / band_m, 0.0, 1.0) * (~basin)
+    gy, gx = np.gradient(arr, pixel_m)
+    slope = np.clip((np.hypot(gx, gy) - ZANCLEAN_CASCADE_SLOPE) /
+                    max(ZANCLEAN_CASCADE_SLOPE, 1e-6), 0.0, 1.0)
+    return np.maximum(lip, slope).astype("float32")
+
+
+def _save_u8_rgb(path, arr01):
+    u8 = (np.clip(arr01, 0, 1) * 255).astype(np.uint8)
+    try:
+        import imageio.v2 as imageio
+        imageio.imwrite(path, u8)
+    except Exception:
+        from PIL import Image
+        Image.fromarray(u8).save(path)
+
+
 def write_colormap(path, arr, pixel_m, ve, scheme, coverage=None,
-                   azdeg=315, altdeg=45, shade_lo=0.45):
+                   azdeg=315, altdeg=45, shade_lo=0.45, transform=None):
     """Bake hypsometric tint × hillshade + flood overlay into an 8-bit RGB PNG.
 
     Flood layers (applied in order, last wins):
@@ -572,6 +744,38 @@ def write_colormap(path, arr, pixel_m, ve, scheme, coverage=None,
 
             rgb = np.where(waterfall_zone[..., None], casc_rgb, rgb)
 
+    # ------------------------------------------------------------------
+    # Layer 3: mask-driven megaflood corridor (the big Zanclean trunk).
+    # Painted LAST so the hand-traced torrent dominates over the D8 feeders.
+    # ------------------------------------------------------------------
+    if MEGAFLOOD_CORRIDOR:
+        weight, along = rasterize_megaflood_corridor(arr.shape, pixel_m, transform)
+        if MEGAFLOOD_CONFINE_TO_LOW:
+            weight = np.where(arr <= MEGAFLOOD_FILL_ELEV_M, weight, 0.0).astype("float32")
+
+        atl  = np.array(ZANCLEAN_ATLANTIC_RGB, "float32")
+        turb = np.array(ZANCLEAN_TURBID_RGB,   "float32")
+        foam = np.array(ZANCLEAN_FOAM_RGB,     "float32")
+        a = np.nan_to_num(along, nan=0.0)[..., None]              # 0 source -> 1 lip
+        if MEGAFLOOD_TURBID_RAMP:
+            base = atl.reshape(1, 1, 3) * (1.0 - a) + turb.reshape(1, 1, 3) * a
+        else:
+            base = np.broadcast_to(turb.reshape(1, 1, 3), arr.shape + (3,)).copy()
+
+        foam_w = megaflood_foam(arr, pixel_m, basin)[..., None]   # whitewater at the plunge
+        cor_rgb = base * (1.0 - foam_w) + foam.reshape(1, 1, 3) * foam_w
+        cor_rgb = cor_rgb * (0.55 + 0.45 * hs)                    # keep relief shading
+
+        w3 = weight[..., None]
+        rgb = rgb * (1.0 - w3) + cor_rgb * w3
+
+        if MEGAFLOOD_WRITE_MASK:
+            corr = np.zeros(arr.shape + (3,), "float32")
+            corr[..., 0] = weight
+            corr[..., 1] = np.nan_to_num(along, nan=0.0) * (weight > 0)
+            corr[..., 2] = foam_w[..., 0] * (weight > 0)
+            _save_u8_rgb(os.path.join(OUT_DIR, OUT_FLOOD_CORRIDOR_PNG), corr)
+
     u8 = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
     try:
         import imageio.v2 as imageio
@@ -629,6 +833,12 @@ def _crop(arr, transform):
 def finalize(paleo, transform, crs, pbar, coverage=None):
     """Write GeoTIFF + 16-bit heightmap + metadata + QC hillshade."""
     pixel_m = float(abs(transform.a))
+
+    if MEGAFLOOD_CORRIDOR and MEGAFLOOD_SCOUR_M > 0:
+        _w, _ = rasterize_megaflood_corridor(paleo.shape, pixel_m, transform)
+        paleo = (paleo - MEGAFLOOD_SCOUR_M * _w).astype("float32")
+        pbar.write(f"[merge] megaflood scour: carved up to {MEGAFLOOD_SCOUR_M:.0f} m "
+                   f"into the corridor (incised megachannel for the 3D render)")
  
     pbar.set_description("write GeoTIFF")
     write_geotiff(os.path.join(OUT_DIR, OUT_GEOTIFF), paleo, transform, crs); pbar.update(1)
@@ -638,7 +848,7 @@ def finalize(paleo, transform, crs, pbar, coverage=None):
  
     if WRITE_COLORMAP:
         write_colormap(os.path.join(OUT_DIR, OUT_COLORMAP_PNG), paleo, pixel_m,
-                       VE_HINT, COLORMAP_SCHEME, coverage=coverage)
+                       VE_HINT, COLORMAP_SCHEME, coverage=coverage, transform=transform)
  
     pbar.set_description("write metadata")
     meta = dict(zmin_m=zmin, zmax_m=zmax,
@@ -648,6 +858,8 @@ def finalize(paleo, transform, crs, pbar, coverage=None):
                 crs=str(crs), heightmap_png=OUT_HEIGHTMAP_PNG)
     if WRITE_COLORMAP:
         meta["colormap_png"] = OUT_COLORMAP_PNG
+    if WRITE_COLORMAP and MEGAFLOOD_CORRIDOR and MEGAFLOOD_WRITE_MASK:
+        meta["flood_corridor_png"] = OUT_FLOOD_CORRIDOR_PNG
     with open(os.path.join(OUT_DIR, OUT_META_JSON), "w") as f:
         json.dump(meta, f, indent=2)
     pbar.update(1)
@@ -718,4 +930,3 @@ def main():
  
 if __name__ == "__main__":
     main()
- 

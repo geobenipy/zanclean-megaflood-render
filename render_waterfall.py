@@ -103,13 +103,28 @@ WATER_TRANSMISSION  = 0.65          # < 1.0 → base colour visible through wate
 WATER_WAVE_STRENGTH = 0.10          # subtle ripples — high values cause white specular blowout
 WATER_WAVE_SCALE    = 40.0          # medium-scale waves
 
+# --- 3D megaflood sheet (real water in the corridor; needs flood_corridor.png) ---
+# A second terrain-hugging surface that only shows INSIDE the flood corridor, with
+# the water material. Because it follows the terrain it drapes down the escarpment
+# where the land drops -> an actual 3D cascade, and meets the flat sea plane in the
+# basin below. Needs MEGAFLOOD_WRITE_MASK=True in merge_paleo_dem.py.
+SHOW_FLOOD_SHEET     = True
+FLOOD_SHEET_DEPTH_M  = 60.0          # water thickness lifted above the terrain (m)
+FLOOD_SHEET_COLOR    = (0.06, 0.20, 0.34)   # turbid flood blue
+FLOOD_FOAM_COLOR     = (0.80, 0.88, 0.93)   # whitewater tint at the cascade (mask B channel)
+FLOOD_SHEET_ALPHA    = 0.92
+FLOOD_FRONT_SOFTNESS = 0.05          # softness of the advancing flood front (fraction of along)
+FLOOD_CORRIDOR_PNG   = None          # None = read 'flood_corridor_png' from meta
+FLOOD_ADVANCE        = 1.0           # still: reveal fraction 0..1 (source->lip). 1 = full.
+                                     # the 'flood_advance' animation sweeps this 0 -> 1.
+
 # --- zoom / framing ---
 CAM_TARGET_OFFSET_KM = (0.0, 0.0)   # shift the look-at point (x,y km) to frame the canyon
 # to zoom: raise CAM_LENS_MM (telephoto, keeps perspective) or lower CAM_DISTANCE_KM (move in)
 
 # --- animation ---
 ANIMATE     = False                 # render an image sequence instead of a single still
-ANIM_TYPE   = "flood_rise"          # "flood_rise" | "orbit" | "flood_and_orbit"
+ANIM_TYPE   = "flood_rise"          # "flood_rise" | "orbit" | "flood_and_orbit" | "flood_advance"
 ANIM_FRAMES = 120
 ANIM_FPS    = 30
 ANIM_FORMAT = "PNG"                 # "PNG" (frame sequence) | "MP4" (FFmpeg, built into Blender)
@@ -432,6 +447,125 @@ def _water_material_real(water):
     water.data.materials.append(mat)
 
 
+def make_flood_sheet(meta, ve, width_km, height_km):
+    """Terrain-hugging water sheet clipped to the megaflood corridor (mask alpha).
+
+    Uses the same heightmap displacement as the terrain (so it drapes over the
+    escarpment -> a real 3D cascade) plus a small water-depth lift, and the corridor
+    mask (flood_corridor.png) drives the alpha: R=coverage, G=along (advance reveal),
+    B=foam (whitewater tint). Returns the sheet object (or None if no mask/disabled).
+    """
+    if not SHOW_FLOOD_SHEET:
+        return None
+    corr_png = FLOOD_CORRIDOR_PNG or meta.get("flood_corridor_png")
+    if not corr_png:
+        log("flood sheet: no flood_corridor_png in meta "
+            "(set MEGAFLOOD_WRITE_MASK=True in the merge) - skipping")
+        return None
+    corr_path = os.path.join(DATA_DIR, corr_png)
+    if not os.path.isfile(corr_path):
+        log(f"flood sheet: corridor mask not found ({corr_path}) - skipping")
+        return None
+
+    zmin, zmax = meta["zmin_m"], meta["zmax_m"]
+    bpy.ops.mesh.primitive_grid_add(
+        x_subdivisions=SUBDIVISIONS, y_subdivisions=SUBDIVISIONS,
+        size=width_km, location=(0, 0, 0))
+    sheet = bpy.context.active_object
+    sheet.name = "flood_sheet"
+    sheet.scale = (1.0, height_km / width_km, 1.0)
+    bpy.ops.object.transform_apply(scale=True)
+
+    img = bpy.data.images.load(os.path.join(DATA_DIR, meta.get("heightmap_png", "heightmap_16bit.png")))
+    try:
+        img.colorspace_settings.name = "Non-Color"
+    except Exception:
+        pass
+    tex = bpy.data.textures.new("flood_hm_tex", type="IMAGE")
+    tex.image = img
+    tex.extension = "EXTEND"
+    mod = sheet.modifiers.new("displace", type="DISPLACE")
+    mod.texture = tex
+    mod.texture_coords = "UV"
+    mod.direction = "Z"
+    mod.mid_level = 0.0
+    mod.strength = ve * (zmax - zmin) / 1000.0
+    sheet.location.z = ve * zmin / 1000.0 + ve * FLOOD_SHEET_DEPTH_M / 1000.0
+
+    _flood_sheet_material(sheet, corr_path)
+    log("flood sheet: corridor water sheet built (%s)" % corr_png)
+    return sheet
+
+
+def _flood_sheet_material(obj, corr_path):
+    """Water material clipped by the corridor mask; adds a 'flood_advance_value' node
+    that gates the reveal (source->lip) for the flood_advance animation."""
+    img = bpy.data.images.load(corr_path)
+    try:
+        img.colorspace_settings.name = "Non-Color"       # mask channels are data, not colour
+    except Exception:
+        pass
+    mat = bpy.data.materials.new("flood_sheet_mat")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    bsdf = nt.nodes.get("Principled BSDF")
+
+    tex = nt.nodes.new("ShaderNodeTexImage")
+    tex.image = img
+    tex.extension = "EXTEND"
+    sep = nt.nodes.new("ShaderNodeSeparateColor")
+    nt.links.new(tex.outputs["Color"], sep.inputs["Color"])   # R,G,B = coverage,along,foam
+
+    # base colour: turbid water -> foam by the B (foam) channel
+    mix = nt.nodes.new("ShaderNodeMixRGB")
+    try:
+        mix.inputs["Color1"].default_value = (*FLOOD_SHEET_COLOR, 1)
+        mix.inputs["Color2"].default_value = (*FLOOD_FOAM_COLOR, 1)
+        nt.links.new(sep.outputs["Blue"], mix.inputs["Fac"])
+        nt.links.new(mix.outputs["Color"], bsdf.inputs["Base Color"])
+    except (KeyError, TypeError):
+        bsdf.inputs["Base Color"].default_value = (*FLOOD_SHEET_COLOR, 1)
+
+    bsdf.inputs["Roughness"].default_value = WATER_ROUGHNESS
+    _set_input(bsdf, ["Transmission Weight", "Transmission"], 0.30)
+    _set_input(bsdf, ["IOR"], WATER_IOR)
+
+    # reveal front: clamp((advance - along) / softness, 0, 1)  -> soft advancing edge
+    adv = nt.nodes.new("ShaderNodeValue")
+    adv.name = "flood_advance_value"
+    adv.label = "flood_advance"
+    adv.outputs[0].default_value = float(FLOOD_ADVANCE)
+    sub = nt.nodes.new("ShaderNodeMath"); sub.operation = "SUBTRACT"
+    nt.links.new(adv.outputs[0], sub.inputs[0])
+    nt.links.new(sep.outputs["Green"], sub.inputs[1])
+    rev = nt.nodes.new("ShaderNodeMath"); rev.operation = "MULTIPLY"; rev.use_clamp = True
+    rev.inputs[1].default_value = 1.0 / max(FLOOD_FRONT_SOFTNESS, 1e-3)
+    nt.links.new(sub.outputs["Value"], rev.inputs[0])
+
+    # alpha = coverage(R) * reveal * global alpha
+    m1 = nt.nodes.new("ShaderNodeMath"); m1.operation = "MULTIPLY"
+    nt.links.new(sep.outputs["Red"], m1.inputs[0])
+    nt.links.new(rev.outputs["Value"], m1.inputs[1])
+    m2 = nt.nodes.new("ShaderNodeMath"); m2.operation = "MULTIPLY"
+    m2.inputs[1].default_value = float(FLOOD_SHEET_ALPHA)
+    nt.links.new(m1.outputs["Value"], m2.inputs[0])
+    _set_input(bsdf, ["Alpha"], 1.0)
+    nt.links.new(m2.outputs["Value"], bsdf.inputs["Alpha"])
+
+    for attr, val in (("blend_method", "BLEND"), ("surface_render_method", "BLENDED"),
+                      ("use_screen_refraction", True), ("use_raytrace_refraction", True)):
+        try:
+            setattr(mat, attr, val)
+        except (AttributeError, TypeError):
+            pass
+    try:
+        mat.shadow_method = "NONE"          # thin water skin shouldn't cast hard shadows
+    except (AttributeError, TypeError):
+        pass
+
+    obj.data.materials.append(mat)
+
+
 def make_sun():
     bpy.ops.object.light_add(type="SUN", location=(0, 0, 50))
     sun = bpy.context.active_object
@@ -512,7 +646,7 @@ def setup_render():
     scene.render.filepath = OUTPUT_PNG
 
 
-def setup_animation(scene, meta, ve, water, cam, target):
+def setup_animation(scene, meta, ve, water, cam, target, flood_sheet=None):
     """Keyframe a rising flood and/or a camera orbit; configure sequence/video output."""
     scene.frame_start = 1
     scene.frame_end = ANIM_FRAMES
@@ -539,6 +673,23 @@ def setup_animation(scene, meta, ve, water, cam, target):
                 for kp in fc.keyframe_points:
                     kp.interpolation = "LINEAR"
         log("anim: camera orbit 360 deg")
+    if ANIM_TYPE == "flood_advance" and flood_sheet is not None:
+        mat = flood_sheet.active_material
+        node = mat.node_tree.nodes.get("flood_advance_value") if mat else None
+        if node is not None:
+            node.outputs[0].default_value = 0.0
+            node.outputs[0].keyframe_insert("default_value", frame=1)
+            node.outputs[0].default_value = 1.0
+            node.outputs[0].keyframe_insert("default_value", frame=ANIM_FRAMES)
+            ad = mat.node_tree.animation_data
+            if ad and ad.action:
+                for fc in ad.action.fcurves:
+                    for kp in fc.keyframe_points:
+                        kp.interpolation = "LINEAR"
+            log("anim: flood advances (corridor reveal 0 -> 1)")
+        else:
+            log("anim: flood_advance requested but no flood sheet - falling back to a still hold")
+
 
     anim_dir = ANIM_DIR or os.path.join(DATA_DIR, "anim")
     os.makedirs(anim_dir, exist_ok=True)
@@ -622,11 +773,12 @@ def main():
         raise FileNotFoundError(f"DATA_DIR not found: {DATA_DIR} (edit the CONFIG block)")
     meta = load_meta()
 
-    bar = _Bar(8)
+    bar = _Bar(9)
     clear_scene();                                  bar.step("scene")
     set_engine();                                   bar.step("engine")
     terrain, ve, wkm, hkm = make_terrain(meta);     bar.step("terrain")
     water = make_water(meta, ve, wkm, hkm);         bar.step("water")
+    flood_sheet = make_flood_sheet(meta, ve, wkm, hkm); bar.step("flood")
     make_sun();                                     bar.step("sun")
     make_world();                                   bar.step("world")
     cam, target = make_camera(meta, ve, wkm, hkm);  bar.step("camera")
@@ -641,7 +793,7 @@ def main():
 
     if ANIMATE:
         anim_dir = ANIM_DIR or os.path.join(DATA_DIR, "anim")
-        setup_animation(bpy.context.scene, meta, ve, water, cam, target)
+        setup_animation(bpy.context.scene, meta, ve, water, cam, target, flood_sheet)
         print(f"  rendering {ANIM_FRAMES} frames  [{ANIM_TYPE}  {SAMPLES} spp  {ANIM_FPS} fps]")
         _render_anim_with_progress(ANIM_FRAMES, anim_dir)
         print(f"  animation done  →  {anim_dir}")

@@ -100,6 +100,39 @@ Knobs to turn:
 
 ---
 
+## The Zanclean megaflood corridor (the hero flood)
+
+The automatic D8 rivers look like *rivers* because they are (flow accumulation).
+The Zanclean flood was the single largest flood in Earth history — one colossal
+torrent, not a dendritic network. So you **trace the route yourself** and the
+script rolls a wide flood down it.
+
+1. Do a first run, open `colormap.png`.
+2. Read the waypoints of the route you want straight off the image: for each bend,
+   `fx = x_pixel / width`, `fy = y_pixel / height` (`(0,0)` = top-left). List them
+   source→plunge in `MEGAFLOOD_PATH` (or use `MEGAFLOOD_PATH_UNITS="crs"` and read
+   metres off QGIS for precision).
+3. Set `MEGAFLOOD_HALFWIDTH_KM` — half-widths in km per waypoint. Big upstream
+   (e.g. 24 → a 48 km torrent), pinch through the canyon head (~5), fan at the
+   plume (~15). Re-run.
+
+You get: clean Atlantic blue at the inlet → turbid sediment toward the canyon →
+white foam where it plunges over the escarpment, baked into `colormap.png` and
+exported as `flood_corridor.png` (the mask).
+
+**3D water + "the flood rolls in":** with `MEGAFLOOD_WRITE_MASK=True`, the Blender
+script (`SHOW_FLOOD_SHEET=True`) builds a real water sheet clipped to the corridor.
+Because it hugs the terrain it drapes down the escarpment as an actual 3D cascade
+and meets the sea plane below. Set `ANIMATE=True, ANIM_TYPE="flood_advance"` to
+sweep the flood from source to lip — the megaflood advancing and going over.
+
+Knobs: `MEGAFLOOD_FEATHER_KM` (torrent edge softness), `MEGAFLOOD_FOAM_BAND_KM`
+(whitewater width at the rim), `MEGAFLOOD_SCOUR_M` (carve an incised megachannel
+into the geometry), `MEGAFLOOD_CONFINE_TO_LOW` (fill valleys vs. overtop — a
+megaflood overtops, so leave it False for maximum drama).
+
+---
+
 ## Two kinds of shot (read this for real data)
 
 A full GEBCO tile is ~500–600 km wide. Two consequences:
