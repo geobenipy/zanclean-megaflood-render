@@ -104,28 +104,37 @@ WATER_WAVE_STRENGTH = 0.10          # subtle ripples — high values cause white
 WATER_WAVE_SCALE    = 40.0          # medium-scale waves
 
 # --- 3D megaflood sheet (real water in the corridor; needs flood_corridor.png) ---
-# A second terrain-hugging surface that only shows INSIDE the flood corridor, with
-# the water material. Because it follows the terrain it drapes down the escarpment
-# where the land drops -> an actual 3D cascade, and meets the flat sea plane in the
-# basin below. Needs MEGAFLOOD_WRITE_MASK=True in merge_paleo_dem.py.
+# A water sheet that sits at the flood WATER SURFACE (baked by the merge, sloping down
+# the corridor to the sea) and only shows inside the corridor. It fills low ground,
+# lets ridges/hills poke through, and drops where the land drops -> a real 3D cascade
+# into the sea plane. Needs MEGAFLOOD_WRITE_MASK=True in merge_paleo_dem.py.
 SHOW_FLOOD_SHEET     = True
-FLOOD_SHEET_DEPTH_M  = 60.0          # water thickness lifted above the terrain (m)
+FLOOD_SHEET_ZBIAS_M  = 2.0           # tiny lift to avoid z-fighting at the waterline
+                                     # (the real water depth is baked into the surface)
 FLOOD_SHEET_COLOR    = (0.06, 0.20, 0.34)   # turbid flood blue
-FLOOD_FOAM_COLOR     = (0.80, 0.88, 0.93)   # whitewater tint at the cascade (mask B channel)
+FLOOD_FOAM_COLOR     = (0.90, 0.94, 0.97)   # whitewater tint at the cascade (mask B channel)
 FLOOD_SHEET_ALPHA    = 0.92
-FLOOD_FRONT_SOFTNESS = 0.05          # softness of the advancing flood front (fraction of along)
+FLOOD_SHEET_ROUGHNESS = 0.28         # open flood water; higher than the calm sea plane so
+                                     # the sheet doesn't mirror the sky into a pale wedge
+FLOOD_WAVE_STRENGTH  = 0.35          # ripple bump on the flood sheet (a torrent, not glass)
+FLOOD_WAVE_SCALE     = 120.0         # ripple scale (bigger = finer chop at scene scale)
+FLOOD_FRONT_SOFTNESS = 0.08          # softness of the advancing flood front (fraction of along)
 FLOOD_CORRIDOR_PNG   = None          # None = read 'flood_corridor_png' from meta
 FLOOD_ADVANCE        = 1.0           # still: reveal fraction 0..1 (source->lip). 1 = full.
                                      # the 'flood_advance' animation sweeps this 0 -> 1.
 
 # --- zoom / framing ---
-CAM_TARGET_OFFSET_KM = (0.0, 0.0)   # shift the look-at point (x,y km) to frame the canyon
+CAM_TARGET_OFFSET_KM = (12.0, -6.0) # shift the look-at point (x,y km) to frame the canyon
+                                    # (12,-6) centres the escarpment lip / plunge point
 # to zoom: raise CAM_LENS_MM (telephoto, keeps perspective) or lower CAM_DISTANCE_KM (move in)
 
 # --- animation ---
-ANIMATE     = False                 # render an image sequence instead of a single still
-ANIM_TYPE   = "flood_rise"          # "flood_rise" | "orbit" | "flood_and_orbit" | "flood_advance"
-ANIM_FRAMES = 120
+ANIMATE     = True                 # render an image sequence instead of a single still
+ANIM_TYPE   = "flood_advance"       # "flood_rise" | "orbit" | "flood_and_orbit" | "flood_advance"
+                                    # flood_advance = the corridor reveals source->lip: the
+                                    # megaflood visibly rolls in and hits the falls (hero anim;
+                                    # flood_rise only moves the distant sea plane a little)
+ANIM_FRAMES = 20*30                 # 20 s @ 30 fps; Cycles needs minutes/frame - keep it short
 ANIM_FPS    = 30
 ANIM_FORMAT = "PNG"                 # "PNG" (frame sequence) | "MP4" (FFmpeg, built into Blender)
 ANIM_DIR    = None                  # None = DATA_DIR/anim
@@ -258,6 +267,14 @@ def make_terrain(meta):
     terrain.location.z = ve * zmin / 1000.0
 
     cmap_png = meta.get("colormap_png")
+    # flood_advance: the 3D sheet alone carries the flood, so the ground must show
+    # the PRE-flood desiccated colour - otherwise the painted-in flood is visible
+    # before the water sheet arrives and the "flood rolls in" illusion collapses
+    if ANIMATE and ANIM_TYPE == "flood_advance":
+        dry_png = meta.get("colormap_dry_png")
+        if dry_png and os.path.isfile(os.path.join(DATA_DIR, dry_png)):
+            cmap_png = dry_png
+            log("terrain colour: using pre-flood colormap (%s) for flood_advance" % dry_png)
     has_cmap = cmap_png and os.path.isfile(os.path.join(DATA_DIR, cmap_png))
     if PHOTOREAL and has_cmap:
         _terrain_material_albedo(terrain, os.path.join(DATA_DIR, cmap_png))
@@ -448,12 +465,13 @@ def _water_material_real(water):
 
 
 def make_flood_sheet(meta, ve, width_km, height_km):
-    """Terrain-hugging water sheet clipped to the megaflood corridor (mask alpha).
+    """Water sheet at the flood water surface, clipped to the megaflood corridor.
 
-    Uses the same heightmap displacement as the terrain (so it drapes over the
-    escarpment -> a real 3D cascade) plus a small water-depth lift, and the corridor
-    mask (flood_corridor.png) drives the alpha: R=coverage, G=along (advance reveal),
-    B=foam (whitewater tint). Returns the sheet object (or None if no mask/disabled).
+    Displaces the flood water-surface heightmap (flood_surface_16bit.png) so the sheet
+    sits at the flood level - filling lows, letting highs poke through, dropping where
+    the land drops. The corridor mask (flood_corridor.png) drives the alpha: R=coverage
+    (topographically confined), G=along (advance reveal), B=foam (whitewater tint).
+    Returns the sheet object (or None if no mask / disabled).
     """
     if not SHOW_FLOOD_SHEET:
         return None
@@ -476,7 +494,15 @@ def make_flood_sheet(meta, ve, width_km, height_km):
     sheet.scale = (1.0, height_km / width_km, 1.0)
     bpy.ops.object.transform_apply(scale=True)
 
-    img = bpy.data.images.load(os.path.join(DATA_DIR, meta.get("heightmap_png", "heightmap_16bit.png")))
+    # displace from the FLOOD WATER-SURFACE heightmap (not the terrain): the sheet sits
+    # at the flood water level, so it fills lows and lets highs poke through instead of
+    # draping over the ground like a tarp. Falls back to the terrain heightmap if the
+    # merge didn't export a surface (older run) - that reproduces the old drape.
+    surf_png = meta.get("flood_surface_png") or meta.get("heightmap_png", "heightmap_16bit.png")
+    if not meta.get("flood_surface_png"):
+        log("flood sheet: no flood_surface_png in meta - draping over terrain "
+            "(re-run the merge to get the topographically-confined water surface)")
+    img = bpy.data.images.load(os.path.join(DATA_DIR, surf_png))
     try:
         img.colorspace_settings.name = "Non-Color"
     except Exception:
@@ -490,9 +516,20 @@ def make_flood_sheet(meta, ve, width_km, height_km):
     mod.direction = "Z"
     mod.mid_level = 0.0
     mod.strength = ve * (zmax - zmin) / 1000.0
-    sheet.location.z = ve * zmin / 1000.0 + ve * FLOOD_SHEET_DEPTH_M / 1000.0
+    sheet.location.z = ve * zmin / 1000.0 + ve * FLOOD_SHEET_ZBIAS_M / 1000.0
 
     _flood_sheet_material(sheet, corr_path)
+    # the thin water skin must not cast shadows onto the terrain below - in Cycles
+    # that painted a hard dark band across the flood (mat.shadow_method only covers
+    # legacy EEVEE)
+    try:
+        sheet.visible_shadow = False
+    except AttributeError:
+        pass
+    try:
+        sheet.cycles_visibility.shadow = False
+    except AttributeError:
+        pass
     log("flood sheet: corridor water sheet built (%s)" % corr_png)
     return sheet
 
@@ -526,9 +563,33 @@ def _flood_sheet_material(obj, corr_path):
     except (KeyError, TypeError):
         bsdf.inputs["Base Color"].default_value = (*FLOOD_SHEET_COLOR, 1)
 
-    bsdf.inputs["Roughness"].default_value = WATER_ROUGHNESS
+    # foam is rough/diffuse whitewater, open water stays glossier: drive the
+    # roughness from the foam (B) channel so the cascade reads as churned water
+    bsdf.inputs["Roughness"].default_value = FLOOD_SHEET_ROUGHNESS
+    try:
+        rough = nt.nodes.new("ShaderNodeMapRange")
+        rough.inputs["To Min"].default_value = FLOOD_SHEET_ROUGHNESS
+        rough.inputs["To Max"].default_value = 0.9
+        nt.links.new(sep.outputs["Blue"], rough.inputs["Value"])
+        nt.links.new(rough.outputs["Result"], bsdf.inputs["Roughness"])
+    except (KeyError, TypeError):
+        pass
     _set_input(bsdf, ["Transmission Weight", "Transmission"], 0.30)
     _set_input(bsdf, ["IOR"], WATER_IOR)
+
+    # ripple bump: the megaflood is a torrent, not a mirror - breaks up the flat
+    # sky reflection that made the sheet render as a featureless pale wedge
+    if FLOOD_WAVE_STRENGTH > 0:
+        noise = nt.nodes.new("ShaderNodeTexNoise")
+        noise.inputs["Scale"].default_value = FLOOD_WAVE_SCALE
+        try:
+            noise.inputs["Detail"].default_value = 6.0
+        except KeyError:
+            pass
+        bump = nt.nodes.new("ShaderNodeBump")
+        bump.inputs["Strength"].default_value = FLOOD_WAVE_STRENGTH
+        nt.links.new(noise.outputs["Fac"], bump.inputs["Height"])
+        nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
 
     # reveal front: clamp((advance - along) / softness, 0, 1)  -> soft advancing edge
     adv = nt.nodes.new("ShaderNodeValue")

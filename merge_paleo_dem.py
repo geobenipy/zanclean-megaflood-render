@@ -91,7 +91,11 @@ OUT_HEIGHTMAP_PNG = "heightmap_16bit.png"
 OUT_META_JSON     = "heightmap_meta.json"
 OUT_HILLSHADE     = "hillshade_qc.png"
 OUT_COLORMAP_PNG  = "colormap.png"
+OUT_COLORMAP_DRY_PNG = "colormap_dry.png"       # same but WITHOUT the megaflood painted in:
+                                                # terrain colour for the flood_advance animation,
+                                                # where the 3D water sheet alone carries the flood
 OUT_FLOOD_CORRIDOR_PNG = "flood_corridor.png"   # RGB: R=corridor coverage, G=along-path 0..1, B=foam
+OUT_FLOOD_SURFACE_PNG  = "flood_surface_16bit.png"   # 16-bit flood water-surface elevation (Blender flood sheet)
 VE_HINT           = 3.0              # suggested vertical exaggeration for the render (written to meta)
 
 # ---- BAKED COLOUR (recommended): a hypsometric tint x hillshade PNG that Blender
@@ -162,24 +166,67 @@ MEGAFLOOD_PATH = [
 ]
 
 # Corridor HALF-width in km at each waypoint (list same length as MEGAFLOOD_PATH, OR
-# a single number for constant width). The flood is huge upstream, pinches through
-# the canyon head, then fans out as a plume. These are half-widths, so 24 -> a 48 km
-# wide torrent at the inlet. Tune freely - bigger = more dramatic.
-MEGAFLOOD_HALFWIDTH_KM = [24, 20, 16, 11, 6, 5, 15]
+# a single number for constant width). Keep these GENEROUS: with terrain confinement
+# on, the shoreline comes from the topography (waterline), and the corridor is only a
+# coarse "the flood is somewhere in here" envelope. Narrow values clip the flood with
+# straight mask edges (the old "blue tarp wedge"). Half-widths: 70 -> 140 km swath.
+MEGAFLOOD_HALFWIDTH_KM = [70, 60, 50, 38, 26, 18, 40]
 
 # Soft edge (km) feathered onto the corridor rim so it reads as a torrent, not a canal.
-MEGAFLOOD_FEATHER_KM = 3.0
+MEGAFLOOD_FEATHER_KM = 8.0
 
 # Whitewater band (km) painted upslope of the basin rim where the flood goes over.
 # Robust to DEM smoothing (keyed to the rim, not just local slope). Unioned with the
 # slope-based foam (ZANCLEAN_CASCADE_SLOPE) for extra texture on steep real data.
-MEGAFLOOD_FOAM_BAND_KM = 2.0
+MEGAFLOOD_FOAM_BAND_KM = 4.0
 
-# Confine the flood to low ground (fills valleys, spares ridges) vs. overtop
-# everything. A megaflood largely overtops -> False gives the most dramatic sheet.
-# True clips the corridor to cells below MEGAFLOOD_FILL_ELEV_M (hydrologically tidier).
-MEGAFLOOD_CONFINE_TO_LOW = False
-MEGAFLOOD_FILL_ELEV_M    = 300.0
+# --- TOPOGRAPHIC CONFINEMENT (the flood follows the terrain) ---
+# Instead of a flat mask laid over hills and valleys alike, the flood is confined by
+# a WATER-SURFACE elevation that slopes down the corridor toward the sea. The flood
+# only appears where the terrain lies BELOW that surface: it fills valleys, leaves
+# ridges/hills dry (islands), and drops where the land drops. This also fixes the 3D
+# "blue tarp" look - the water sheet now sits on the water surface, not on the ground.
+MEGAFLOOD_CONFINE_TO_TERRAIN = True   # False = old behaviour (overtop everything, flat sheet)
+
+# Water depth (m) above the channel floor along the route (auto profile). With
+# MEGAFLOOD_POOLING this is effectively the HEAD above the highest downstream sill:
+# the upstream water level = sill elevation + this depth. The route sill sits at
+# ~+45 m, so 120 m -> upstream lake level ~ +165 m. Downstream of the sill it is the
+# sheet thickness pouring over the escarpment. 80-200 m is a good range.
+MEGAFLOOD_FILL_DEPTH_M = 120.0
+
+# Pool the flood behind downstream sills (physically-correct overflow): the water
+# surface is forced NON-INCREASING downstream (suffix max of bed+fill). The basin
+# west of the sill fills up to sill+fill and pours over -> a huge upstream lake, a
+# broad fast sheet across the sill, and the 2+ km plunge at the escarpment. False =
+# old behaviour (surface hugs the bed, so water visibly "climbs" uphill over sills).
+MEGAFLOOD_POOLING = True
+
+# Hydrological extent instead of the corridor envelope: flood every cell that lies
+# BELOW the water surface AND is connected to the flood route (flood fill). This
+# removes the last straight mask edges - the shoreline is 100% topographic. The
+# corridor half-widths then only steer the water-surface/turbidity propagation.
+# False = clip the flood to the corridor envelope (straight edges where it cuts
+# low ground).
+MEGAFLOOD_CONNECTED_FILL = True
+
+# Optional floor for the water surface (m): the surface is not allowed to fall below
+# this. None = let the terrain take it down all the way (recommended). Set e.g. to a
+# value near PALEO_SEA_LEVEL_M if you want the flood to pool at the sea level.
+MEGAFLOOD_WATER_OUTLET_M = None
+
+# OPTIONAL full manual control: water-surface elevation (m) at each waypoint, same
+# length as MEGAFLOOD_PATH. None = auto (channel floor + fill depth at the inlet,
+# grading to the outlet level). The profile is always forced non-increasing downstream.
+MEGAFLOOD_WATER_ELEV_M = None
+
+# Smoothing of the water surface (m) and depth (m) over which the shoreline fades.
+MEGAFLOOD_WATER_SMOOTH_M       = 4000.0
+MEGAFLOOD_WATERLINE_FEATHER_M  = 25.0
+
+# Shore->deep colour: shallow water is lighter, deep water tends to the navy. Scale (m)
+# over which the flood colour deepens with water depth.
+MEGAFLOOD_DEEP_SCALE_M = 400.0
 
 # Clean Atlantic -> turbid gradient along the corridor (False = uniform turbid).
 MEGAFLOOD_TURBID_RAMP = True
@@ -629,8 +676,9 @@ def rasterize_megaflood_corridor(shape, pixel_m, transform=None):
     feather_m = max(MEGAFLOOD_FEATHER_KM * 1000.0, 1e-6)
     weight = np.clip((halfw_m + feather_m - dist_m) / feather_m, 0.0, 1.0)
     weight = np.where(dist_m <= halfw_m, 1.0, weight).astype("float32")
-    along  = np.where(weight > 0, along, np.nan).astype("float32")
-    return weight, along
+    # along stays defined EVERYWHERE (nearest path sample): the connected-fill mode
+    # floods beyond the envelope and still needs the source->plunge parameter there.
+    return weight, along.astype("float32")
 
 
 def megaflood_foam(arr, pixel_m, basin):
@@ -652,6 +700,97 @@ def _save_u8_rgb(path, arr01):
     except Exception:
         from PIL import Image
         Image.fromarray(u8).save(path)
+
+
+def _megaflood_water_profile(arr, ri, ci, tt):
+    """Water-surface elevation (m) at each densified path sample, non-increasing.
+
+    Auto: inlet level = channel floor near the source + MEGAFLOOD_FILL_DEPTH_M, graded
+    linearly along the path to the outlet (sea level by default). Manual: interpolate
+    MEGAFLOOD_WATER_ELEV_M. Always forced non-increasing downstream (water flows down).
+    """
+    if MEGAFLOOD_WATER_ELEV_M is not None:
+        wp_t = np.linspace(0.0, 1.0, len(MEGAFLOOD_WATER_ELEV_M))
+        zw = np.interp(tt, wp_t, np.asarray(MEGAFLOOD_WATER_ELEV_M, float))
+    else:
+        # channel floor + fill depth: the water surface follows the terrain down the
+        # route, so the flood covers the basin (~fill depth deep) and plunges where
+        # the floor drops at the escarpment. Path should follow the thalweg.
+        zbed = arr[ri, ci].astype("float64")                 # terrain along the path
+        zw = zbed + MEGAFLOOD_FILL_DEPTH_M
+        if MEGAFLOOD_POOLING:
+            # overflow physics: water can't slope uphill downstream. Suffix max pools
+            # the surface behind the highest downstream sill (upstream lake), keeps
+            # the fill-depth sheet on the sill itself and on the escarpment drop.
+            zw = np.maximum.accumulate(zw[::-1])[::-1]
+        if MEGAFLOOD_WATER_OUTLET_M is not None:
+            zw = np.maximum(zw, float(MEGAFLOOD_WATER_OUTLET_M))   # don't fall below outlet
+    return zw.astype("float32")
+
+
+def compute_megaflood(arr, pixel_m, transform):
+    """Topographically-constrained megaflood: corridor AND (terrain below water surface).
+
+    Returns (coverage, along, zwater, depth, foam):
+      coverage 0..1 flood extent (feathered at the shoreline); along 0..1 source->plunge;
+      zwater water-surface elevation (m) over the grid; depth = zwater-terrain (>=0 m);
+      foam 0..1 whitewater at the plunge.
+    """
+    H, W = arr.shape
+    weight, along = rasterize_megaflood_corridor(arr.shape, pixel_m, transform)
+
+    if not MEGAFLOOD_CONFINE_TO_TERRAIN:                      # legacy overtop sheet
+        zwater = (arr + MEGAFLOOD_FILL_DEPTH_M).astype("float32")
+        depth  = np.full_like(arr, MEGAFLOOD_FILL_DEPTH_M, dtype="float32")
+        foam   = megaflood_foam(arr, pixel_m, arr < FLOOD_BASIN_LEVEL) * (weight > 0)
+        return weight, along, zwater, depth, foam.astype("float32")
+
+    pts = _megaflood_points_px(arr.shape, transform)
+    halfw_px = _megaflood_halfwidths_px(pixel_m, len(pts))
+    rr, cc, tt, _ = _densify_polyline(pts, halfw_px)
+    ri = np.clip(np.round(rr).astype(int), 0, H - 1)
+    ci = np.clip(np.round(cc).astype(int), 0, W - 1)
+    zw_path = _megaflood_water_profile(arr, ri, ci, tt)
+
+    seed = np.full((H, W), np.nan, "float32")
+    seed[ri, ci] = zw_path
+    idx = distance_transform_edt(~np.isfinite(seed), return_distances=False,
+                                 return_indices=True)
+    zwater = seed[tuple(idx)]
+    if MEGAFLOOD_WATER_SMOOTH_M and MEGAFLOOD_WATER_SMOOTH_M > 0:
+        zwater = gaussian_filter(zwater, MEGAFLOOD_WATER_SMOOTH_M / pixel_m).astype("float32")
+
+    depth = np.clip(zwater - arr, 0.0, None).astype("float32")
+    feather = max(MEGAFLOOD_WATERLINE_FEATHER_M, 1e-6)
+    waterline = np.clip(depth / feather, 0.0, 1.0)           # soft shoreline (0 at edge -> 1)
+
+    if MEGAFLOOD_CONNECTED_FILL:
+        # hydrological extent: keep only wet cells connected to the flood route, so
+        # the shoreline is purely topographic (no straight corridor-envelope cuts)
+        from scipy.ndimage import label
+        lab, _n = label(depth > 0)
+        path_labs = np.unique(lab[ri, ci])
+        path_labs = path_labs[path_labs != 0]
+        conn = np.isin(lab, path_labs)
+        coverage = (waterline * conn).astype("float32")
+        along = np.where(conn, along, np.nan).astype("float32")
+    else:
+        coverage = (weight * waterline).astype("float32")
+
+    foam = megaflood_foam(arr, pixel_m, arr < FLOOD_BASIN_LEVEL) * (coverage > 0)
+    return coverage, along, zwater.astype("float32"), depth, foam.astype("float32")
+
+
+def _save_u16_norm(path, arr_m, zmin, zmax):
+    """Save a metre-valued array as a 16-bit PNG normalised with the given z-range."""
+    rng = (zmax - zmin) if (zmax > zmin) else 1.0
+    u16 = np.clip((arr_m - zmin) / rng * 65535.0, 0, 65535).astype(np.uint16)
+    try:
+        import imageio.v2 as imageio
+        imageio.imwrite(path, u16)
+    except Exception:
+        from PIL import Image
+        Image.fromarray(u16.astype(np.int32), mode="I").save(path)
 
 
 def write_colormap(path, arr, pixel_m, ve, scheme, coverage=None,
@@ -749,32 +888,52 @@ def write_colormap(path, arr, pixel_m, ve, scheme, coverage=None,
     # Painted LAST so the hand-traced torrent dominates over the D8 feeders.
     # ------------------------------------------------------------------
     if MEGAFLOOD_CORRIDOR:
-        weight, along = rasterize_megaflood_corridor(arr.shape, pixel_m, transform)
-        if MEGAFLOOD_CONFINE_TO_LOW:
-            weight = np.where(arr <= MEGAFLOOD_FILL_ELEV_M, weight, 0.0).astype("float32")
+        # pre-flood terrain colour (desiccated floor + D8 rivers + remnant basin
+        # lakes, but NO megaflood): the flood_advance animation shows this where
+        # the 3D water sheet hasn't arrived yet - a painted-in flood would spoil
+        # the "flood rolls in" illusion.
+        u8_dry = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
+        try:
+            import imageio.v2 as imageio
+            imageio.imwrite(os.path.join(OUT_DIR, OUT_COLORMAP_DRY_PNG), u8_dry)
+        except Exception:
+            from PIL import Image
+            Image.fromarray(u8_dry).save(os.path.join(OUT_DIR, OUT_COLORMAP_DRY_PNG))
+        coverage, along, zwater, depth, foam_w = compute_megaflood(arr, pixel_m, transform)
 
         atl  = np.array(ZANCLEAN_ATLANTIC_RGB, "float32")
         turb = np.array(ZANCLEAN_TURBID_RGB,   "float32")
+        deep = np.array(ZANCLEAN_DEEP_NAVY,    "float32")
         foam = np.array(ZANCLEAN_FOAM_RGB,     "float32")
-        a = np.nan_to_num(along, nan=0.0)[..., None]              # 0 source -> 1 lip
+
+        a = np.nan_to_num(along, nan=0.0)[..., None]             # 0 source -> 1 lip
         if MEGAFLOOD_TURBID_RAMP:
             base = atl.reshape(1, 1, 3) * (1.0 - a) + turb.reshape(1, 1, 3) * a
         else:
             base = np.broadcast_to(turb.reshape(1, 1, 3), arr.shape + (3,)).copy()
 
-        foam_w = megaflood_foam(arr, pixel_m, basin)[..., None]   # whitewater at the plunge
-        cor_rgb = base * (1.0 - foam_w) + foam.reshape(1, 1, 3) * foam_w
-        cor_rgb = cor_rgb * (0.55 + 0.45 * hs)                    # keep relief shading
+        # shore -> deep by water depth (shallow edges lighter, deep centre navy)
+        dt = np.clip(depth / max(MEGAFLOOD_DEEP_SCALE_M, 1e-6), 0.0, 1.0)[..., None]
+        watercol = base * (1.0 - dt) + deep.reshape(1, 1, 3) * dt
+        fw = foam_w[..., None]
+        cor_rgb = watercol * (1.0 - fw) + foam.reshape(1, 1, 3) * fw
+        cor_rgb = cor_rgb * (0.55 + 0.45 * hs)                   # keep relief shading
 
-        w3 = weight[..., None]
+        w3 = coverage[..., None]
         rgb = rgb * (1.0 - w3) + cor_rgb * w3
 
         if MEGAFLOOD_WRITE_MASK:
             corr = np.zeros(arr.shape + (3,), "float32")
-            corr[..., 0] = weight
-            corr[..., 1] = np.nan_to_num(along, nan=0.0) * (weight > 0)
-            corr[..., 2] = foam_w[..., 0] * (weight > 0)
+            corr[..., 0] = coverage
+            corr[..., 1] = np.nan_to_num(along, nan=0.0) * (coverage > 0)
+            corr[..., 2] = foam_w * (coverage > 0)
             _save_u8_rgb(os.path.join(OUT_DIR, OUT_FLOOD_CORRIDOR_PNG), corr)
+            # 16-bit water-surface heightmap for the 3D flood sheet (same z-range as the
+            # terrain heightmap, so Blender displaces both identically). Clamp to [zmin,
+            # zmax]: the surface stays >= terrain everywhere it floods, so no poke-through.
+            zmn = float(np.nanmin(arr)); zmx = float(np.nanmax(arr))
+            surf = np.clip(np.where(coverage > 0, zwater, arr), zmn, zmx).astype("float32")
+            _save_u16_norm(os.path.join(OUT_DIR, OUT_FLOOD_SURFACE_PNG), surf, zmn, zmx)
 
     u8 = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
     try:
@@ -858,8 +1017,11 @@ def finalize(paleo, transform, crs, pbar, coverage=None):
                 crs=str(crs), heightmap_png=OUT_HEIGHTMAP_PNG)
     if WRITE_COLORMAP:
         meta["colormap_png"] = OUT_COLORMAP_PNG
+    if WRITE_COLORMAP and MEGAFLOOD_CORRIDOR:
+        meta["colormap_dry_png"] = OUT_COLORMAP_DRY_PNG
     if WRITE_COLORMAP and MEGAFLOOD_CORRIDOR and MEGAFLOOD_WRITE_MASK:
         meta["flood_corridor_png"] = OUT_FLOOD_CORRIDOR_PNG
+        meta["flood_surface_png"] = OUT_FLOOD_SURFACE_PNG
     with open(os.path.join(OUT_DIR, OUT_META_JSON), "w") as f:
         json.dump(meta, f, indent=2)
     pbar.update(1)

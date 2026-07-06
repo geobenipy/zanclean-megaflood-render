@@ -22,7 +22,7 @@ from tqdm import tqdm
 # =============================================================================
 
 INPUT_FOLDER = Path(
-    r"output_photorealastic_new\anim"
+    r"output\anim"
 )
 
 OUTPUT_VIDEO = INPUT_FOLDER / "animation.mp4"
