@@ -57,8 +57,15 @@ MES_ONLY = False
 
 # ---- TARGET GRID ----
 TARGET_CRS = None                    # None = auto (picks EPSG:32633 from MES_CRS, since GEBCO is geographic)
-TARGET_RES = 50                    # None = auto (~450 m from GEBCO); or metres (e.g. 100) for a canyon crop
-CROP_BBOX  = (380000, 3980000, 660000, 4180000)                 # None = full extent; or (xmin,ymin,xmax,ymax) in TARGET CRS (metres!)
+
+# REGIONAL overview (the 280x200 km context shot) - swap the comments to go back:
+#TARGET_RES = 25
+#CROP_BBOX  = (380000, 3980000, 660000, 4180000)   # (xmin,ymin,xmax,ymax) target-CRS metres
+
+# CANYON HERO shot: tight 70x60 km box around the waterfall (lip at ~532600/4074000),
+# finer grid so the 2.2 km drop carries the frame. Pair with VE 5 in the render.
+TARGET_RES = 12.5
+CROP_BBOX  = (495000, 4040000, 565000, 4100000)
 
 # ---- SEAM FEATHER ----
 FEATHER_M = 100000.0                   # width (m) of the blend ramp from modern (MES edge) to MES (inside)
@@ -85,7 +92,7 @@ SUBSIDENCE_ELEV_FULL  = -2300.0      # below this elevation: full correction (sm
 PALEO_SEA_LEVEL_M = -2000.0          # desiccated lowstand relative to present sea level
 
 # ---- OUTPUT ----
-OUT_DIR           = "output"  # output folder (created if missing)
+OUT_DIR           = "output_hero_v3"  # regional overview outputs
 OUT_GEOTIFF       = "merged_paleo_dem.tif"
 OUT_HEIGHTMAP_PNG = "heightmap_16bit.png"
 OUT_META_JSON     = "heightmap_meta.json"
@@ -96,7 +103,8 @@ OUT_COLORMAP_DRY_PNG = "colormap_dry.png"       # same but WITHOUT the megaflood
                                                 # where the 3D water sheet alone carries the flood
 OUT_FLOOD_CORRIDOR_PNG = "flood_corridor.png"   # RGB: R=corridor coverage, G=along-path 0..1, B=foam
 OUT_FLOOD_SURFACE_PNG  = "flood_surface_16bit.png"   # 16-bit flood water-surface elevation (Blender flood sheet)
-VE_HINT           = 3.0              # suggested vertical exaggeration for the render (written to meta)
+# VE_HINT         = 3.0              # regional overview
+VE_HINT           = 5.0              # canyon hero: stronger relief so the 2.2 km drop reads
 
 # ---- BAKED COLOUR (recommended): a hypsometric tint x hillshade PNG that Blender
 # uses directly as the surface colour (shadeless), avoiding ColorRamp/lighting issues.
@@ -129,7 +137,9 @@ ZANCLEAN_ENTRY_FRACTION = 0.45      # fraction of grid width covered by the entr
 ZANCLEAN_CHANNEL_KM     = 12.0      # full width (km) of the flood corridor within the MES
 ZANCLEAN_DEEP_NAVY      = (0.04, 0.10, 0.30)   # deep basin (below FLOOD_BASIN_LEVEL)
 ZANCLEAN_ATLANTIC_RGB   = (0.09, 0.26, 0.54)   # clean basin water at entry (east edge = Ionian Sea)
-ZANCLEAN_TURBID_RGB     = (0.20, 0.29, 0.38)   # turbid sediment-laden front (west = canyon head)
+ZANCLEAN_TURBID_RGB     = (0.17, 0.23, 0.30)   # muddy blue-grey: sediment TINT, but the
+                                               # flood must still read as WATER (full brown
+                                               # made it look like a salt flat)
 ZANCLEAN_FOAM_RGB       = (0.72, 0.85, 0.92)   # white-blue foam/spray at the cascade lip
 ZANCLEAN_CASCADE_SLOPE  = 0.80      # gradient threshold (m/m) for the cascade/foam zone
 
@@ -149,36 +159,95 @@ MEGAFLOOD_CORRIDOR = True
 #   "image" = fractions of colormap.png, (fx, fy) with (0,0)=TOP-LEFT, (1,1)=BOTTOM-
 #             RIGHT. Easiest: eyeball the pixel of each bend, divide by width/height.
 #   "crs"   = target-CRS metres (x_east, y_north), read precisely off QGIS.
-MEGAFLOOD_PATH_UNITS = "image"
+MEGAFLOOD_PATH_UNITS = "crs"    # CRS metres: crop-independent, same route for the
+                                # regional view AND the canyon hero crop
 
 # Waypoints ALONG the flood, ordered SOURCE (Gibraltar/inlet) -> PLUNGE. The default
 # traces the trunk visible in your render: enters lower-left, runs NE across the dry
 # basin, converges at the canyon head, plunges E into the Ionian. RETRACE THESE to
 # match the blue route you drew - this is just a starting point.
+# Route traced along the ACTUAL deep corridor (probed from the merged DEM): enters
+# from the NW (Gibraltar direction along SE Sicily), runs down the -700..-890 m
+# trough, crosses the shallow flats hugging their northern side, swings into the
+# canyon head and plunges SE into the Ionian. (x_east, y_north) EPSG:32633 metres.
 MEGAFLOOD_PATH = [
-    (0.06, 0.74),   # SW inlet  (from the Gibraltar direction, off-frame)
-    (0.16, 0.68),
-    (0.30, 0.62),
-    (0.42, 0.57),
-    (0.50, 0.54),   # canyon head / convergence
-    (0.545, 0.53),  # escarpment lip  (the waterfall)
-    (0.58, 0.53),   # plunge / plume into the Ionian
+    (366000, 4096000),  # NW inlet OUTSIDE the grid (start-cap artefacts stay off-map)
+    (391200, 4090000),  # enters the frame (~-400 m)
+    (408000, 4076000),  # upper trough (~-700 m)
+    (427600, 4064000),  # trough axis (~-850 m, deepest)
+    (452800, 4060000),  # trough exit onto the flats (~-120 m)
+    (475200, 4063000),  # flats, northern side / bay (~-30 m)
+    (497600, 4066000),  # flats (~-80 m)
+    (514400, 4070000),  # approach (~-150 m)
+    (520000, 4072000),  # canyon head / convergence
+    (532600, 4074000),  # escarpment lip (the waterfall)
+    (538200, 4076100),  # plunge down the canyon axis (ENE, ~-2450 m)
+    (545000, 4078000),  # plume into the deep Ionian (~-2690 m)
+    (552000, 4080000),  # plume runs out into the basin
 ]
 
 # Corridor HALF-width in km at each waypoint (list same length as MEGAFLOOD_PATH, OR
-# a single number for constant width). Keep these GENEROUS: with terrain confinement
-# on, the shoreline comes from the topography (waterline), and the corridor is only a
-# coarse "the flood is somewhere in here" envelope. Narrow values clip the flood with
-# straight mask edges (the old "blue tarp wedge"). Half-widths: 70 -> 140 km swath.
-MEGAFLOOD_HALFWIDTH_KM = [70, 60, 50, 38, 26, 18, 40]
+# a single number for constant width). This is the RIVER width of the overspill: the
+# flood is clipped to this envelope, so the west stays a desiccated basin with one
+# broad torrent running through it (not an inland sea). The shoreline INSIDE the
+# envelope is topographic (waterline); the envelope edge is feathered. Half-widths,
+# so 35 -> a 70 km wide torrent at the inlet, pinching toward the canyon head.
+MEGAFLOOD_HALFWIDTH_KM = [22, 22, 25, 25, 20, 20, 16, 12, 7, 6, 10, 14, 18]
 
-# Soft edge (km) feathered onto the corridor rim so it reads as a torrent, not a canal.
-MEGAFLOOD_FEATHER_KM = 8.0
+# Soft edge (km) feathered onto the corridor rim so it reads as a torrent, not a
+# canal. Generous: within the feather the SHORELINE comes from the terrain (via the
+# sinking surface); beyond halfwidth+feather the flood is guaranteed zero.
+MEGAFLOOD_FEATHER_KM = 15.0
+
+# Lower the water surface CONTINUOUSLY beyond the corridor rim, by this many metres
+# per km of distance outside the half-width. The sinking surface intersects the
+# terrain at some organic contour, so there is never a straight mask cut: flats next
+# to the corridor fall dry within a few km, deep source basins to the west keep
+# flooding for tens of km, and the falling cascade profile cannot drape sideways
+# along the escarpment. 0 = hard envelope clip (weight * waterline).
+MEGAFLOOD_EDGE_DROP_PER_KM = 50.0   # steep enough that the sinking surface cuts the
+                                    # near-flat southern shelf in a few km - at 20 the
+                                    # grazing intersection was tens of km of milky film
 
 # Whitewater band (km) painted upslope of the basin rim where the flood goes over.
-# Robust to DEM smoothing (keyed to the rim, not just local slope). Unioned with the
-# slope-based foam (ZANCLEAN_CASCADE_SLOPE) for extra texture on steep real data.
+# Only used by the legacy (non-confined) mode. The confined mode keys foam to the
+# slope of the WATER SURFACE instead (see MEGAFLOOD_FOAM_SURF_SLOPE).
 MEGAFLOOD_FOAM_BAND_KM = 4.0
+
+# Confined-mode foam: whitewater where the water surface itself drops steeply (the
+# cascade), ramping to full white at 3x this gradient (m/m). 0.05 = 5% surface drop.
+# Must stay above EDGE_DROP_M / (FEATHER_KM*1000) or the corridor rim foams too.
+MEGAFLOOD_FOAM_SURF_SLOPE = 0.05
+# ... plus where a THIN racing sheet (depth below this, in m) skims a steep bed
+# (> ZANCLEAN_CASCADE_SLOPE) - catches the lip itself without foaming deep wet slopes.
+MEGAFLOOD_FOAM_THIN_DEPTH_M = 40.0
+
+# Lateral feather (km) of the CASCADE section only: the falling jet is confined to
+# halfwidth + this, instead of the generous MEGAFLOOD_FEATHER_KM of the lake/flats -
+# otherwise the thin falling film paints a curtain along the whole escarpment face.
+MEGAFLOOD_FALLS_FEATHER_KM = 3.0
+
+# Falling-water streaks: modulate the whitewater with noise smeared ALONG the flow
+# direction (line-integral-convolution style). Turns the flat foam sheet into
+# directional strands running down the cascade - the "it's actually falling" cue.
+MEGAFLOOD_FOAM_STREAKS   = True
+MEGAFLOOD_STREAK_LEN_M   = 600.0   # smear length (m); longer = longer strands
+MEGAFLOOD_STREAK_MIN     = 0.35    # darkest strand keeps this fraction of the foam
+
+# The flood BODY has to read as a raging torrent, not a calm bay:
+# - current lanes: streak-modulate the water colour over the WHOLE flood
+# - rapids: streaky whitecaps wherever the water races (non-pooled sections)
+# - churning margins: thin foam fringe along the waterline (the flood front)
+MEGAFLOOD_BODY_STREAK_GAIN = 0.12  # +-12% colour modulation along flow lanes (0 = off)
+MEGAFLOOD_BODY_STREAK_LEN_M = 2500.0  # lane length (m); longer than the foam strands
+MEGAFLOOD_RAPIDS_FOAM      = 0.45  # max whitecap intensity on racing water (0 = off)
+MEGAFLOOD_EDGE_FOAM        = 0.50  # churn-fringe intensity at the waterline (0 = off)
+MEGAFLOOD_EDGE_FOAM_DEPTH  = 12.0  # fringe fades out below this water depth (m)
+
+# Plunge mist: foam-rich cells may dip this many metres BELOW the palaeo sea level
+# before the coverage cutoff removes them -> a white spray zone where the cascade
+# hits the sea instead of a hard cut at the waterline.
+MEGAFLOOD_PLUNGE_MIST_M  = 250.0
 
 # --- TOPOGRAPHIC CONFINEMENT (the flood follows the terrain) ---
 # Instead of a flat mask laid over hills and valleys alike, the flood is confined by
@@ -190,10 +259,10 @@ MEGAFLOOD_CONFINE_TO_TERRAIN = True   # False = old behaviour (overtop everythin
 
 # Water depth (m) above the channel floor along the route (auto profile). With
 # MEGAFLOOD_POOLING this is effectively the HEAD above the highest downstream sill:
-# the upstream water level = sill elevation + this depth. The route sill sits at
-# ~+45 m, so 120 m -> upstream lake level ~ +165 m. Downstream of the sill it is the
-# sheet thickness pouring over the escarpment. 80-200 m is a good range.
-MEGAFLOOD_FILL_DEPTH_M = 120.0
+# the water level in the corridor = sill elevation + this depth. The route sill sits
+# at ~+45 m, so 60 m -> overspill level ~ +105 m. Downstream of the sill it is the
+# sheet thickness pouring over the escarpment. Raise for a wider/deeper torrent.
+MEGAFLOOD_FILL_DEPTH_M = 30.0
 
 # Pool the flood behind downstream sills (physically-correct overflow): the water
 # surface is forced NON-INCREASING downstream (suffix max of bed+fill). The basin
@@ -202,12 +271,9 @@ MEGAFLOOD_FILL_DEPTH_M = 120.0
 # old behaviour (surface hugs the bed, so water visibly "climbs" uphill over sills).
 MEGAFLOOD_POOLING = True
 
-# Hydrological extent instead of the corridor envelope: flood every cell that lies
-# BELOW the water surface AND is connected to the flood route (flood fill). This
-# removes the last straight mask edges - the shoreline is 100% topographic. The
-# corridor half-widths then only steer the water-surface/turbidity propagation.
-# False = clip the flood to the corridor envelope (straight edges where it cuts
-# low ground).
+# Drop wet patches that are not hydrologically connected to the flood route (flood
+# fill on depth>0): kills stray puddles behind ridges inside the envelope. The flood
+# extent itself is corridor envelope INTERSECTED with terrain-below-water-surface.
 MEGAFLOOD_CONNECTED_FILL = True
 
 # Optional floor for the water surface (m): the surface is not allowed to fall below
@@ -221,12 +287,15 @@ MEGAFLOOD_WATER_OUTLET_M = None
 MEGAFLOOD_WATER_ELEV_M = None
 
 # Smoothing of the water surface (m) and depth (m) over which the shoreline fades.
-MEGAFLOOD_WATER_SMOOTH_M       = 4000.0
-MEGAFLOOD_WATERLINE_FEATHER_M  = 25.0
+MEGAFLOOD_WATER_SMOOTH_M       = 4000.0    # smoothing of the propagated water surface (m)
+MEGAFLOOD_WATERLINE_FEATHER_M  = 5.0    # near-binary: water paints FULL blue right up
+                                        # to its edge - any larger and wide shallow
+                                        # margins render as milky semi-transparent film
 
 # Shore->deep colour: shallow water is lighter, deep water tends to the navy. Scale (m)
 # over which the flood colour deepens with water depth.
-MEGAFLOOD_DEEP_SCALE_M = 400.0
+MEGAFLOOD_DEEP_SCALE_M = 550.0    # shore->deep colour scale; higher keeps the turbid
+                                  # tone visible over deep water, lower goes navy fast
 
 # Clean Atlantic -> turbid gradient along the corridor (False = uniform turbid).
 MEGAFLOOD_TURBID_RAMP = True
@@ -676,9 +745,11 @@ def rasterize_megaflood_corridor(shape, pixel_m, transform=None):
     feather_m = max(MEGAFLOOD_FEATHER_KM * 1000.0, 1e-6)
     weight = np.clip((halfw_m + feather_m - dist_m) / feather_m, 0.0, 1.0)
     weight = np.where(dist_m <= halfw_m, 1.0, weight).astype("float32")
-    # along stays defined EVERYWHERE (nearest path sample): the connected-fill mode
-    # floods beyond the envelope and still needs the source->plunge parameter there.
-    return weight, along.astype("float32")
+    # along stays defined EVERYWHERE (nearest path sample): the flood can extend
+    # beyond the envelope and still needs the source->plunge parameter there.
+    # over_m: distance (m) beyond the local corridor half-width (0 inside).
+    over_m = np.clip(dist_m - halfw_m, 0.0, None).astype("float32")
+    return weight, along.astype("float32"), over_m
 
 
 def megaflood_foam(arr, pixel_m, basin):
@@ -728,6 +799,31 @@ def _megaflood_water_profile(arr, ri, ci, tt):
     return zw.astype("float32")
 
 
+def _flow_streaks(zwater, pixel_m, length_m, seed=12345):
+    """Line-integral-convolution style streak texture: white noise smeared along
+    the water-surface gradient (the flow direction). 0..1, mean ~0.5."""
+    from scipy.ndimage import map_coordinates
+    H, W = zwater.shape
+    gy, gx = np.gradient(zwater, pixel_m)
+    mag = np.hypot(gx, gy) + 1e-9
+    fx = (gx / mag).astype("float32")
+    fy = (gy / mag).astype("float32")
+    rng = np.random.default_rng(seed)
+    noise = rng.random((H, W), dtype=np.float32)
+    yy, xx = np.mgrid[0:H, 0:W].astype("float32")
+    n_steps = max(int(length_m / pixel_m / 2), 1)
+    acc = noise.copy()
+    cnt = 1.0
+    for k in range(1, n_steps + 1):
+        for s in (float(k), -float(k)):
+            acc += map_coordinates(noise, [yy + s * fy, xx + s * fx],
+                                   order=1, mode="nearest")
+            cnt += 1.0
+    acc /= cnt
+    a = (acc - acc.mean()) / (acc.std() + 1e-9)
+    return np.clip(0.5 + 0.5 * a, 0.0, 1.0).astype("float32")
+
+
 def compute_megaflood(arr, pixel_m, transform):
     """Topographically-constrained megaflood: corridor AND (terrain below water surface).
 
@@ -737,13 +833,16 @@ def compute_megaflood(arr, pixel_m, transform):
       foam 0..1 whitewater at the plunge.
     """
     H, W = arr.shape
-    weight, along = rasterize_megaflood_corridor(arr.shape, pixel_m, transform)
+    weight, along, over_m = rasterize_megaflood_corridor(arr.shape, pixel_m, transform)
+    # smooth the along-parameter: raw EDT nearest-sample propagation carries fan
+    # discontinuities that band the turbidity colour ramp (hatching artefacts)
+    along = gaussian_filter(along, 2000.0 / pixel_m).astype("float32")
 
     if not MEGAFLOOD_CONFINE_TO_TERRAIN:                      # legacy overtop sheet
         zwater = (arr + MEGAFLOOD_FILL_DEPTH_M).astype("float32")
         depth  = np.full_like(arr, MEGAFLOOD_FILL_DEPTH_M, dtype="float32")
         foam   = megaflood_foam(arr, pixel_m, arr < FLOOD_BASIN_LEVEL) * (weight > 0)
-        return weight, along, zwater, depth, foam.astype("float32")
+        return weight, along, zwater, depth, foam.astype("float32"), None
 
     pts = _megaflood_points_px(arr.shape, transform)
     halfw_px = _megaflood_halfwidths_px(pixel_m, len(pts))
@@ -752,33 +851,130 @@ def compute_megaflood(arr, pixel_m, transform):
     ci = np.clip(np.round(cc).astype(int), 0, W - 1)
     zw_path = _megaflood_water_profile(arr, ri, ci, tt)
 
+    # nearest-sample propagation of the path profile + per-sample POOLEDNESS.
+    # pooledness (0..1 ramp): how far the profile stands above its own bed+fill,
+    # i.e. genuinely ponded water (lake behind a sill) vs a racing thin sheet
+    # (sill crest, cascade, plume). Propagated by the same EDT lookup - NO
+    # along-interpolation, which re-imported profile jumps at every fan collision.
+    zbed_path = arr[ri, ci].astype("float64")
+    pooled01 = np.clip((zw_path.astype("float64") - (zbed_path + MEGAFLOOD_FILL_DEPTH_M))
+                       / 50.0, 0.0, 1.0).astype("float32")
+
     seed = np.full((H, W), np.nan, "float32")
     seed[ri, ci] = zw_path
     idx = distance_transform_edt(~np.isfinite(seed), return_distances=False,
                                  return_indices=True)
-    zwater = seed[tuple(idx)]
+    nearest = tuple(idx)
+    zwater = seed[nearest]
+    seed_p = np.full((H, W), np.nan, "float32")
+    seed_p[ri, ci] = pooled01
+    pooledness = seed_p[nearest]
+
     if MEGAFLOOD_WATER_SMOOTH_M and MEGAFLOOD_WATER_SMOOTH_M > 0:
         zwater = gaussian_filter(zwater, MEGAFLOOD_WATER_SMOOTH_M / pixel_m).astype("float32")
+        pooledness = gaussian_filter(pooledness, MEGAFLOOD_WATER_SMOOTH_M / pixel_m).astype("float32")
+
+    # cap the racing-sheet sections at bed+fill AFTER the smoothing: kills the
+    # hanging skirts that smoothing builds at the cliff and at fan collisions
+    # (phantom water over the open sea next to the falls). Ponded sections keep
+    # their standing level.
+    zw_thin = np.minimum(zwater, arr + MEGAFLOOD_FILL_DEPTH_M)
+    zwater = (pooledness * zwater + (1.0 - pooledness) * zw_thin).astype("float32")
+
+    if MEGAFLOOD_EDGE_DROP_PER_KM and MEGAFLOOD_EDGE_DROP_PER_KM > 0:
+        # sink the surface continuously beyond the corridor rim: the waterline forms
+        # an organic terrain contour wherever the sinking surface meets the ground.
+        # Flats next to the corridor fall dry within a few km, deep source basins
+        # keep flooding for tens of km, and the falling cascade profile cannot drape
+        # a phantom water skin sideways along the escarpment.
+        zwater = (zwater - MEGAFLOOD_EDGE_DROP_PER_KM / 1000.0 * over_m).astype("float32")
 
     depth = np.clip(zwater - arr, 0.0, None).astype("float32")
     feather = max(MEGAFLOOD_WATERLINE_FEATHER_M, 1e-6)
     waterline = np.clip(depth / feather, 0.0, 1.0)           # soft shoreline (0 at edge -> 1)
 
+    # waterline gives the organic terrain shoreline (with the sinking rim surface);
+    # the envelope guarantees ZERO flood beyond halfwidth+feather. The racing-sheet
+    # sections (non-pooled: cascade, plume) use their own tight feather so the
+    # falling jet stays in the canyon instead of curtaining along the escarpment.
+    w_falls = np.clip(1.0 - over_m / max(MEGAFLOOD_FALLS_FEATHER_KM * 1000.0, 1e-6),
+                      0.0, 1.0).astype("float32")
+    envelope = (1.0 - pooledness) * w_falls + pooledness * weight
+    coverage = (envelope * waterline).astype("float32")
+
+    # cascade foam BEFORE the sea cutoff (the mist grace below needs it): white
+    # where the water surface drops steeply (falls) or a thin sheet races over a
+    # steep bed (the lip). Wide ramp -> graded whitewater, not a saturated blob.
+    # Damped by pooledness: no foam on standing lake margins.
+    gyw, gxw = np.gradient(zwater, pixel_m)
+    s0 = max(MEGAFLOOD_FOAM_SURF_SLOPE, 1e-6)
+    foam_surf = np.clip((np.hypot(gxw, gyw) - s0) / (9.0 * s0), 0.0, 1.0)
+    gy, gx = np.gradient(arr, pixel_m)
+    foam_thin = np.clip((np.hypot(gx, gy) - ZANCLEAN_CASCADE_SLOPE) /
+                        max(ZANCLEAN_CASCADE_SLOPE, 1e-6), 0.0, 1.0) \
+        * (depth < MEGAFLOOD_FOAM_THIN_DEPTH_M)
+    foam_raw = (np.maximum(foam_surf, foam_thin)
+                * np.clip(1.0 - pooledness, 0.0, 1.0)).astype("float32")
+
+    streaks = None
+    if MEGAFLOOD_FOAM_STREAKS:
+        # falling-water strands: smear noise along the flow and modulate the foam
+        streaks = _flow_streaks(zwater, pixel_m, MEGAFLOOD_STREAK_LEN_M)
+        foam_raw = (foam_raw * (MEGAFLOOD_STREAK_MIN
+                                + (1.0 - MEGAFLOOD_STREAK_MIN) * streaks)).astype("float32")
+
+    # rapids: SPARSE whitecap filaments on racing (non-pooled) water - only the
+    # brightest streak lanes turn white. A dense streak**2 wash painted the whole
+    # racing section as milky frost instead of white threads on blue water.
+    if MEGAFLOOD_RAPIDS_FOAM > 0 and streaks is not None:
+        lane = np.clip((streaks - 0.55) / 0.45, 0.0, 1.0) ** 2
+        rapids = (MEGAFLOOD_RAPIDS_FOAM * np.clip(1.0 - pooledness, 0.0, 1.0)
+                  * lane).astype("float32")
+        foam_raw = np.maximum(foam_raw, rapids)
+
+
+    # the flood sheet only exists ABOVE the receiving palaeo sea - EXCEPT that
+    # foam-rich cells get a grace depth (plunge mist/spray where the cascade hits
+    # the water). The visible surface of those cells is clamped onto the sea plane
+    # below, so the spray floats as a white apron on the sea.
+    grace = MEGAFLOOD_PLUNGE_MIST_M * np.clip(2.0 * foam_raw, 0.0, 1.0)
+    above_sea = np.clip((zwater - PALEO_SEA_LEVEL_M + grace) / 150.0, 0.0, 1.0)
+    coverage = (coverage * above_sea).astype("float32")
     if MEGAFLOOD_CONNECTED_FILL:
-        # hydrological extent: keep only wet cells connected to the flood route, so
-        # the shoreline is purely topographic (no straight corridor-envelope cuts)
+        # keep only wet cells hydrologically connected to the flood route: kills
+        # stray puddles behind ridges that happen to lie below the water surface
         from scipy.ndimage import label
-        lab, _n = label(depth > 0)
+        lab, _n = label(coverage > 0)
         path_labs = np.unique(lab[ri, ci])
         path_labs = path_labs[path_labs != 0]
         conn = np.isin(lab, path_labs)
-        coverage = (waterline * conn).astype("float32")
+        coverage = (coverage * conn).astype("float32")
         along = np.where(conn, along, np.nan).astype("float32")
-    else:
-        coverage = (weight * waterline).astype("float32")
 
-    foam = megaflood_foam(arr, pixel_m, arr < FLOOD_BASIN_LEVEL) * (coverage > 0)
-    return coverage, along, zwater.astype("float32"), depth, foam.astype("float32")
+    # churning margins: thin foam fringe exactly AT the waterline. Edge-detected on
+    # the BINARY wet mask - the soft coverage field has interior gradients all over
+    # shallow flats and would paint the whole flat as frost.
+    if MEGAFLOOD_EDGE_FOAM > 0:
+        bnd = (coverage > 0.02).astype("float32")
+        gcy, gcx = np.gradient(bnd)
+        fringe = np.clip(np.hypot(gcx, gcy) * 2.0, 0.0, 1.0)
+        fringe = gaussian_filter(fringe, 1.2).astype("float32") * MEGAFLOOD_EDGE_FOAM
+        if streaks is not None:
+            fringe = fringe * (0.4 + 0.6 * streaks)
+        foam_raw = np.maximum(foam_raw, fringe.astype("float32"))
+
+    foam = (foam_raw * (coverage > 0)).astype("float32")
+    # lift the below-sea (mist) part of the sheet onto the sea plane
+    zwater = np.where(coverage > 0,
+                      np.maximum(zwater, PALEO_SEA_LEVEL_M + 2.0),
+                      zwater).astype("float32")
+
+    # long current lanes for the flood-body colour (separate, longer LIC pass)
+    body_streaks = None
+    if MEGAFLOOD_BODY_STREAK_GAIN > 0:
+        body_streaks = _flow_streaks(zwater, pixel_m, MEGAFLOOD_BODY_STREAK_LEN_M,
+                                     seed=777)
+    return coverage, along, zwater, depth, foam, body_streaks
 
 
 def _save_u16_norm(path, arr_m, zmin, zmax):
@@ -899,7 +1095,8 @@ def write_colormap(path, arr, pixel_m, ve, scheme, coverage=None,
         except Exception:
             from PIL import Image
             Image.fromarray(u8_dry).save(os.path.join(OUT_DIR, OUT_COLORMAP_DRY_PNG))
-        coverage, along, zwater, depth, foam_w = compute_megaflood(arr, pixel_m, transform)
+        coverage, along, zwater, depth, foam_w, body_streaks = \
+            compute_megaflood(arr, pixel_m, transform)
 
         atl  = np.array(ZANCLEAN_ATLANTIC_RGB, "float32")
         turb = np.array(ZANCLEAN_TURBID_RGB,   "float32")
@@ -912,9 +1109,15 @@ def write_colormap(path, arr, pixel_m, ve, scheme, coverage=None,
         else:
             base = np.broadcast_to(turb.reshape(1, 1, 3), arr.shape + (3,)).copy()
 
-        # shore -> deep by water depth (shallow edges lighter, deep centre navy)
-        dt = np.clip(depth / max(MEGAFLOOD_DEEP_SCALE_M, 1e-6), 0.0, 1.0)[..., None]
+        # shore -> deep by water depth. sqrt ramp: even shallow racing water darkens
+        # fast (a linear ramp left the wide shallow shelves so light that the foam
+        # lanes read as milky frost instead of whitecaps on dark water)
+        dt = np.sqrt(np.clip(depth / max(MEGAFLOOD_DEEP_SCALE_M, 1e-6), 0.0, 1.0))[..., None]
         watercol = base * (1.0 - dt) + deep.reshape(1, 1, 3) * dt
+        if body_streaks is not None:
+            # current lanes: subtle brightness modulation along the flow direction
+            g = MEGAFLOOD_BODY_STREAK_GAIN
+            watercol = watercol * (1.0 - g + 2.0 * g * body_streaks[..., None])
         fw = foam_w[..., None]
         cor_rgb = watercol * (1.0 - fw) + foam.reshape(1, 1, 3) * fw
         cor_rgb = cor_rgb * (0.55 + 0.45 * hs)                   # keep relief shading
@@ -927,6 +1130,10 @@ def write_colormap(path, arr, pixel_m, ve, scheme, coverage=None,
             corr[..., 0] = coverage
             corr[..., 1] = np.nan_to_num(along, nan=0.0) * (coverage > 0)
             corr[..., 2] = foam_w * (coverage > 0)
+            # zero a 2 px border: Blender's EXTEND texture mode smears edge pixels
+            # outward, which painted stripe bands along the mesh rim where the
+            # corridor touches the grid edge
+            corr[:2, :] = 0; corr[-2:, :] = 0; corr[:, :2] = 0; corr[:, -2:] = 0
             _save_u8_rgb(os.path.join(OUT_DIR, OUT_FLOOD_CORRIDOR_PNG), corr)
             # 16-bit water-surface heightmap for the 3D flood sheet (same z-range as the
             # terrain heightmap, so Blender displaces both identically). Clamp to [zmin,
@@ -994,7 +1201,7 @@ def finalize(paleo, transform, crs, pbar, coverage=None):
     pixel_m = float(abs(transform.a))
 
     if MEGAFLOOD_CORRIDOR and MEGAFLOOD_SCOUR_M > 0:
-        _w, _ = rasterize_megaflood_corridor(paleo.shape, pixel_m, transform)
+        _w, _, _ = rasterize_megaflood_corridor(paleo.shape, pixel_m, transform)
         paleo = (paleo - MEGAFLOOD_SCOUR_M * _w).astype("float32")
         pbar.write(f"[merge] megaflood scour: carved up to {MEGAFLOOD_SCOUR_M:.0f} m "
                    f"into the corridor (incised megachannel for the 3D render)")

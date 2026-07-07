@@ -40,26 +40,41 @@ from mathutils import Vector
 # =====================================================================
 # CONFIG
 # =====================================================================
-DATA_DIR   = r"output"
-OUTPUT_PNG = r"output\render_waterfall.png"
+DATA_DIR   = r"output_hero_v3"
+OUTPUT_PNG = r"output_hero_v3\render_waterfall.png"
 
 # --- console ---
 QUIET = True                         # clean output: one progress bar + summary. False = verbose debug logs
 
 # --- terrain ---
-SUBDIVISIONS = 800                   # grid resolution (cuts per side). 600-1000 is a good range.
-VE           = 3                     # vertical exaggeration; None = use ve_hint from metadata
+SUBDIVISIONS = 2400                  # grid resolution (cuts per side). 600-1000 for the
+                                     # regional view; 1600 for the hero crop (70 km / 1600
+                                     # = 44 m/quad, matches the 25 m heightmap better)
+# VE         = 3                     # regional overview
+VE           = None                  # None = ve_hint from metadata (hero merge writes 5)
 
 # --- camera (oblique "fly-over" view) ---
-CAM_AZIMUTH_DEG  = 310.0             # look direction, clockwise from north
-CAM_ALTITUDE_DEG = 24.0             # camera height angle above the horizon
-CAM_DISTANCE_KM  = None             # None = auto (~1.6 x scene width); or set in km
-CAM_LENS_MM      = 150.0            # focal length (smaller = wider; larger = telephoto zoom)
+#CAM_AZIMUTH_DEG  = 310.0          # regional overview: oblique from the SE
+#CAM_ALTITUDE_DEG = 24.0
+#CAM_DISTANCE_KM  = None           # None = auto (~1.6 x scene width)
+CAM_AZIMUTH_DEG  = 250.0            # hero: from over the Ionian, looking WSW straight
+                                    # at the escarpment wall + the falls in the notch
+CAM_ALTITUDE_DEG = 30.0             # higher/steeper: shows the flood feeding the falls
+CAM_DISTANCE_KM  = 60.0             # closer so the 2.2 km drop fills the frame
+#CAM_LENS_MM      = 118.0            # regional overview: tight enough that terrain+sea
+                                    # fill the frame (no void corners)
+CAM_LENS_MM    = 100.0            # hero crop: ~40 km field of view at the falls
+                                    # (smaller = wider; larger = telephoto zoom)
 
 # --- sun ---
-SUN_AZIMUTH_DEG   = 315.0
-SUN_ALTITUDE_DEG  = 32.0
-SUN_STRENGTH      = 2.5
+SUN_AZIMUTH_DEG = 315.0           # regional overview (NW light)
+#SUN_AZIMUTH_DEG   = 95.0            # hero: E light shining INTO the amphitheatre so
+                                    # the cascade is fully lit (SE light let the rim
+                                    # shadow cut across the falls)
+SUN_ALTITUDE_DEG  = 40.0
+SUN_STRENGTH      = 8.0             # our lamp is the only sun now (sky sun disc off);
+                                    # must dominate the blue-grey sky ambient or the
+                                    # scene goes flat and desaturated
 
 # --- colour rendering ---
 VIEW_TRANSFORM = "AGX"               # photoreal: AGX/Filmic give cinematic highlight rolloff; "Standard" = flat/literal
@@ -78,12 +93,14 @@ COLOR_SCHEME = "desiccated"
 SHOW_WATER   = True
 WATER_COLOR  = (0.03, 0.14, 0.35)   # dark turbid flood blue
 WATER_ALPHA  = 0.92                  # nearly opaque – the flood is sediment-laden, not a clear pool
-WATER_MARGIN = 1.01                  # plane size vs terrain (1.01 = just covers, no big skirt)
+WATER_MARGIN = 2.5                   # plane size vs terrain. LARGE: the sea runs far past
+                                     # the terrain edge, so oblique views show water in the
+                                     # frame corners instead of the black void
 
 # --- render ---
 RENDER_ON_RUN = True
-RES_X, RES_Y  = 2400, 1600
-SAMPLES       = 128
+RES_X, RES_Y  = 4800, 3200
+SAMPLES       = 256
 ENGINE_PREF   = "CYCLES"            # "EEVEE" (fast) or "CYCLES" (slower, photoreal)
 BG_COLOR      = (0.66, 0.74, 0.84)  # flat sky colour (used when SKY_TYPE="flat")
 BG_STRENGTH   = 0.35               # ambient fill for the flat/emission look
@@ -91,8 +108,10 @@ BG_STRENGTH   = 0.35               # ambient fill for the flat/emission look
 # --- photorealism ---
 PHOTOREAL   = True                  # True: real sun + shadows + sky + reflective water (vs flat shadeless map)
 SKY_TYPE    = "nishita"             # "nishita" (realistic sun-sky, also lights the scene) | "flat"
-SKY_STRENGTH = 0.7                  # Nishita sky brightness: sky ambient + water reflection (low = sun lamp dominates)
-EXPOSURE     = -2.0                 # global exposure in stops; lower if washed out, raise toward 0 if too dark
+SKY_STRENGTH = 0.45                 # sky brightness: ambient fill + water reflection
+                                    # (keep LOW - a strong blue sky ambient washes the
+                                    # warm terrain tones grey)
+EXPOSURE     = -1.0                 # global exposure in stops; lower if washed out, raise toward 0 if too dark
 SUN_ANGLE_SOFT_DEG = 1.5            # sun angular size; >0 softens shadow edges (realism)
 TERRAIN_ROUGHNESS  = 0.95           # matte ground
 
@@ -111,12 +130,15 @@ WATER_WAVE_SCALE    = 40.0          # medium-scale waves
 SHOW_FLOOD_SHEET     = True
 FLOOD_SHEET_ZBIAS_M  = 2.0           # tiny lift to avoid z-fighting at the waterline
                                      # (the real water depth is baked into the surface)
-FLOOD_SHEET_COLOR    = (0.06, 0.20, 0.34)   # turbid flood blue
+FLOOD_SHEET_COLOR    = (0.03, 0.12, 0.28)   # turbid flood blue (dark - most colour comes
+                                            # from the painted terrain showing through)
 FLOOD_FOAM_COLOR     = (0.90, 0.94, 0.97)   # whitewater tint at the cascade (mask B channel)
-FLOOD_SHEET_ALPHA    = 0.92
-FLOOD_SHEET_ROUGHNESS = 0.28         # open flood water; higher than the calm sea plane so
-                                     # the sheet doesn't mirror the sky into a pale wedge
-FLOOD_WAVE_STRENGTH  = 0.35          # ripple bump on the flood sheet (a torrent, not glass)
+FLOOD_SHEET_ALPHA    = 0.95
+FLOOD_SHEET_ROUGHNESS = 0.15         # match the sea plane so both waters read the same
+FLOOD_SHEET_TRANSMISSION = 0.45      # light passes through to the painted flooded ground;
+                                     # lower = the sheet's own dark blue asserts more (the
+                                     # regional flood was washing out pale over light paint)
+FLOOD_WAVE_STRENGTH  = 0.20          # ripple bump on the flood sheet (a torrent, not glass)
 FLOOD_WAVE_SCALE     = 120.0         # ripple scale (bigger = finer chop at scene scale)
 FLOOD_FRONT_SOFTNESS = 0.08          # softness of the advancing flood front (fraction of along)
 FLOOD_CORRIDOR_PNG   = None          # None = read 'flood_corridor_png' from meta
@@ -124,17 +146,18 @@ FLOOD_ADVANCE        = 1.0           # still: reveal fraction 0..1 (source->lip)
                                      # the 'flood_advance' animation sweeps this 0 -> 1.
 
 # --- zoom / framing ---
-CAM_TARGET_OFFSET_KM = (12.0, -6.0) # shift the look-at point (x,y km) to frame the canyon
-                                    # (12,-6) centres the escarpment lip / plunge point
+#CAM_TARGET_OFFSET_KM = (12.0, -6.0)  # regional overview: centres the escarpment lip
+CAM_TARGET_OFFSET_KM = (2.0, 4.0)  # hero crop: lip at (532600,4074000) vs crop centre
+                                    # (530000,4070000) -> nudge look-at onto the falls
 # to zoom: raise CAM_LENS_MM (telephoto, keeps perspective) or lower CAM_DISTANCE_KM (move in)
 
 # --- animation ---
-ANIMATE     = True                 # render an image sequence instead of a single still
+ANIMATE     = False                 # render an image sequence instead of a single still
 ANIM_TYPE   = "flood_advance"       # "flood_rise" | "orbit" | "flood_and_orbit" | "flood_advance"
                                     # flood_advance = the corridor reveals source->lip: the
                                     # megaflood visibly rolls in and hits the falls (hero anim;
                                     # flood_rise only moves the distant sea plane a little)
-ANIM_FRAMES = 20*30                 # 20 s @ 30 fps; Cycles needs minutes/frame - keep it short
+ANIM_FRAMES = 30*25                 # 30 s @ 25 fps; Cycles needs minutes/frame - keep it short
 ANIM_FPS    = 30
 ANIM_FORMAT = "PNG"                 # "PNG" (frame sequence) | "MP4" (FFmpeg, built into Blender)
 ANIM_DIR    = None                  # None = DATA_DIR/anim
@@ -265,6 +288,13 @@ def make_terrain(meta):
     mod.mid_level = 0.0
     mod.strength = ve * (zmax - zmin) / 1000.0
     terrain.location.z = ve * zmin / 1000.0
+
+    # smooth normals: without this every displaced quad renders flat-shaded and
+    # steep cliff faces break into visible facets
+    try:
+        bpy.ops.object.shade_smooth()
+    except Exception:
+        pass
 
     cmap_png = meta.get("colormap_png")
     # flood_advance: the 3D sheet alone carries the flood, so the ground must show
@@ -518,6 +548,11 @@ def make_flood_sheet(meta, ve, width_km, height_km):
     mod.strength = ve * (zmax - zmin) / 1000.0
     sheet.location.z = ve * zmin / 1000.0 + ve * FLOOD_SHEET_ZBIAS_M / 1000.0
 
+    try:
+        bpy.ops.object.shade_smooth()          # smooth normals (see terrain)
+    except Exception:
+        pass
+
     _flood_sheet_material(sheet, corr_path)
     # the thin water skin must not cast shadows onto the terrain below - in Cycles
     # that painted a hard dark band across the flood (mat.shadow_method only covers
@@ -574,11 +609,13 @@ def _flood_sheet_material(obj, corr_path):
         nt.links.new(rough.outputs["Result"], bsdf.inputs["Roughness"])
     except (KeyError, TypeError):
         pass
-    _set_input(bsdf, ["Transmission Weight", "Transmission"], 0.30)
+    _set_input(bsdf, ["Transmission Weight", "Transmission"], FLOOD_SHEET_TRANSMISSION)
     _set_input(bsdf, ["IOR"], WATER_IOR)
 
     # ripple bump: the megaflood is a torrent, not a mirror - breaks up the flat
-    # sky reflection that made the sheet render as a featureless pale wedge
+    # sky reflection that made the sheet render as a featureless pale wedge.
+    # The foam (B) channel carries flow-aligned streaks from the merge; adding it
+    # to the bump height turns them into directional surface texture (current lanes).
     if FLOOD_WAVE_STRENGTH > 0:
         noise = nt.nodes.new("ShaderNodeTexNoise")
         noise.inputs["Scale"].default_value = FLOOD_WAVE_SCALE
@@ -586,9 +623,14 @@ def _flood_sheet_material(obj, corr_path):
             noise.inputs["Detail"].default_value = 6.0
         except KeyError:
             pass
+        hadd = nt.nodes.new("ShaderNodeMath")
+        hadd.operation = "MULTIPLY_ADD"          # height = foam * 0.6 + noise
+        hadd.inputs[1].default_value = 0.6
+        nt.links.new(sep.outputs["Blue"], hadd.inputs[0])
+        nt.links.new(noise.outputs["Fac"], hadd.inputs[2])
         bump = nt.nodes.new("ShaderNodeBump")
         bump.inputs["Strength"].default_value = FLOOD_WAVE_STRENGTH
-        nt.links.new(noise.outputs["Fac"], bump.inputs["Height"])
+        nt.links.new(hadd.outputs["Value"], bump.inputs["Height"])
         nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
 
     # reveal front: clamp((advance - along) / softness, 0, 1)  -> soft advancing edge
@@ -652,12 +694,18 @@ def make_world():
 
     if PHOTOREAL and SKY_TYPE == "nishita":
         sky = nt.nodes.new("ShaderNodeTexSky")
-        try:
-            sky.sky_type = "NISHITA"
-            sky.sun_elevation = math.radians(SUN_ALTITUDE_DEG)
-            sky.sun_rotation = math.radians(SUN_AZIMUTH_DEG)
-        except (AttributeError, TypeError):
-            pass
+        # set each attribute in its own try: Blender 5.x renamed the sky model to
+        # MULTIPLE_SCATTERING, and a single try-block silently skipped elevation/
+        # rotation too - leaving the sky's own sun DISC at default az 0/elev 15
+        # as the dominant light, ignoring SUN_* entirely.
+        for attr, val in (("sky_type", "NISHITA"),
+                          ("sun_disc", False),   # our sun lamp is the sun
+                          ("sun_elevation", math.radians(SUN_ALTITUDE_DEG)),
+                          ("sun_rotation", math.radians(-SUN_AZIMUTH_DEG))):
+            try:
+                setattr(sky, attr, val)
+            except (AttributeError, TypeError):
+                pass
         if bg:
             nt.links.new(sky.outputs["Color"], bg.inputs["Color"])
             bg.inputs["Strength"].default_value = SKY_STRENGTH
