@@ -40,8 +40,10 @@ from mathutils import Vector
 # =====================================================================
 # CONFIG
 # =====================================================================
-DATA_DIR   = r"output_hero_v3"
-OUTPUT_PNG = r"output_hero_v3\render_waterfall.png"
+DATA_DIR   = r"output_v8"
+OUTPUT_PNG = r"output_v8\render_waterfall.png"
+#DATA_DIR   = r"output_hero_v6"
+#OUTPUT_PNG = r"output_hero_v6\render_waterfall.png"
 
 # --- console ---
 QUIET = True                         # clean output: one progress bar + summary. False = verbose debug logs
@@ -54,17 +56,17 @@ SUBDIVISIONS = 2400                  # grid resolution (cuts per side). 600-1000
 VE           = None                  # None = ve_hint from metadata (hero merge writes 5)
 
 # --- camera (oblique "fly-over" view) ---
-#CAM_AZIMUTH_DEG  = 310.0          # regional overview: oblique from the SE
-#CAM_ALTITUDE_DEG = 24.0
-#CAM_DISTANCE_KM  = None           # None = auto (~1.6 x scene width)
-CAM_AZIMUTH_DEG  = 250.0            # hero: from over the Ionian, looking WSW straight
+CAM_AZIMUTH_DEG  = 310.0          # regional overview: oblique from the SE
+CAM_ALTITUDE_DEG = 24.0
+CAM_DISTANCE_KM  = None           # None = auto (~1.6 x scene width)
+#CAM_AZIMUTH_DEG  = 250.0           # hero: from over the Ionian, looking WSW straight
                                     # at the escarpment wall + the falls in the notch
-CAM_ALTITUDE_DEG = 30.0             # higher/steeper: shows the flood feeding the falls
-CAM_DISTANCE_KM  = 60.0             # closer so the 2.2 km drop fills the frame
-#CAM_LENS_MM      = 118.0            # regional overview: tight enough that terrain+sea
+#CAM_ALTITUDE_DEG = 30.0            # higher/steeper: shows the flood feeding the falls
+#CAM_DISTANCE_KM  = 70.0            # pulled back (was 60) so the WHOLE waterfall fits
+CAM_LENS_MM      = 118.0            # regional overview: tight enough that terrain+sea
                                     # fill the frame (no void corners)
-CAM_LENS_MM    = 100.0            # hero crop: ~40 km field of view at the falls
-                                    # (smaller = wider; larger = telephoto zoom)
+#CAM_LENS_MM    = 75.0             # hero: wide enough for the full falls, head to plunge
+                                    # pool (100 framed only the lower cascade)
 
 # --- sun ---
 SUN_AZIMUTH_DEG = 315.0           # regional overview (NW light)
@@ -115,12 +117,47 @@ EXPOSURE     = -1.0                 # global exposure in stops; lower if washed 
 SUN_ANGLE_SOFT_DEG = 1.5            # sun angular size; >0 softens shadow edges (realism)
 TERRAIN_ROUGHNESS  = 0.95           # matte ground
 
+# --- PHOTOREAL detail: break the flat "clay model" look with procedural surface texture ---
+TERRAIN_DETAIL        = True        # procedural sediment colour variation + micro rock bump
+TERRAIN_COLOR_VAR     = 0.17        # +-fraction albedo brightness variation (sediment patches)
+TERRAIN_COLOR_SCALE   = 11.0        # patch scale (bigger number = smaller patches)
+TERRAIN_BUMP_STRENGTH = 0.20        # micro rock bump (0 = smooth clay); keep subtle
+TERRAIN_BUMP_SCALE    = 300.0       # rock-detail frequency (bigger = finer grain)
+
+# --- PHOTOREAL atmosphere: distance haze so far terrain fades to sky (depth + scale cue) ---
+# Applied IN THE SHADER: each surface is mixed toward a haze colour by its camera distance
+# (a MixShader driven by Camera Data -> View Distance). This is the only method that works
+# here - the Mist compositor pass doesn't apply headless, and a world Volume Scatter turns
+# the km-scale scene black (the sky at infinity is fully extinguished). Distance-correct,
+# so the same settings suit both the wide overview and the close hero.
+ATMOSPHERE       = True             # the single biggest realism win for a wide landscape
+HAZE_COLOR       = (0.62, 0.72, 0.86)   # haze tint - match the sky horizon (blue-grey)
+HAZE_STRENGTH    = 0.68             # max haze mix on the farthest terrain (0..1)
+HAZE_EMIT_STRENGTH = 1.1            # haze brightness (match the horizon sky so terrain blends in)
+# ABSOLUTE camera-distance thresholds (km), NOT relative to the shot: the same values keep
+# the close hero (terrain ~35-105 km) fully crisp while the wide overview (terrain ~310-590
+# km) keeps its NEAR ground crisp and only the FAR mountains recede into haze. START must
+# sit near the overview's near edge (~310 km) or the whole overview washes out; the hero
+# is entirely nearer than START so it stays haze-free. Lower START to push haze closer.
+HAZE_START_KM    = 340.0          # no haze nearer than this (overview near-ground = crisp)
+HAZE_END_KM      = 620.0           # full HAZE_STRENGTH at/beyond this distance (far mountains)
+
 # --- realistic water (used when PHOTOREAL) ---
-WATER_ROUGHNESS     = 0.15          # diffuse specular to avoid white glare on wide water surfaces
+WATER_ROUGHNESS     = 0.19          # diffuse specular to avoid white glare on wide water
+                                    # surfaces; a touch higher lets the sea COLOUR patches
+                                    # show through instead of a pure uniform sky mirror
 WATER_IOR           = 1.33
 WATER_TRANSMISSION  = 0.65          # < 1.0 → base colour visible through water (less transparent)
-WATER_WAVE_STRENGTH = 0.10          # subtle ripples — high values cause white specular blowout
+WATER_WAVE_STRENGTH = 0.11          # medium chop bump — high values cause white specular blowout
 WATER_WAVE_SCALE    = 40.0          # medium-scale waves
+# --- sea realism: a large rolling SWELL layered on the chop + broad COLOUR patches, so
+# the Ionian basin reads as a living ocean, not a flat blue slab. All subtle - the sea
+# is the calm receiving basin, not the torrent.
+SEA_SWELL_STRENGTH   = 0.11         # large slow swell bump added under the chop (0 = off)
+SEA_SWELL_SCALE      = 3.0          # swell size (SMALL number = big rolling waves)
+SEA_COLOR_LIGHT      = (0.09, 0.31, 0.58)   # lighter blue for the varying patches
+SEA_COLOR_VARIATION  = 0.85         # 0 = uniform WATER_COLOR; ~0.8 = strong patchiness
+SEA_COLOR_SCALE      = 1.1          # colour-patch size (small = broad ocean-scale patches)
 
 # --- 3D megaflood sheet (real water in the corridor; needs flood_corridor.png) ---
 # A water sheet that sits at the flood WATER SURFACE (baked by the merge, sloping down
@@ -134,20 +171,33 @@ FLOOD_SHEET_COLOR    = (0.03, 0.12, 0.28)   # turbid flood blue (dark - most col
                                             # from the painted terrain showing through)
 FLOOD_FOAM_COLOR     = (0.90, 0.94, 0.97)   # whitewater tint at the cascade (mask B channel)
 FLOOD_SHEET_ALPHA    = 0.95
-FLOOD_SHEET_ROUGHNESS = 0.15         # match the sea plane so both waters read the same
-FLOOD_SHEET_TRANSMISSION = 0.45      # light passes through to the painted flooded ground;
+FLOOD_SHEET_ROUGHNESS = 0.34         # rougher than the sea plane: a glossy flood sheet
+                                     # over the undulating bay floor turned the wave-bump
+                                     # micro-facets into a field of bright sky-reflection
+                                     # speckle (the "leopard" mottle). Rougher = the sky
+                                     # reflection blurs out -> solid matte water body.
+FLOOD_SHEET_TRANSMISSION = 0.30      # light passes through to the painted flooded ground;
                                      # lower = the sheet's own dark blue asserts more (the
-                                     # regional flood was washing out pale over light paint)
-FLOOD_WAVE_STRENGTH  = 0.20          # ripple bump on the flood sheet (a torrent, not glass)
-FLOOD_WAVE_SCALE     = 120.0         # ripple scale (bigger = finer chop at scene scale)
+                                     # regional flood was washing out pale over light paint).
+                                     # 0.30 (was 0.45): shallow bay water stays solid blue
+                                     # instead of letting the tan bed mottle through
+FLOOD_WAVE_STRENGTH  = 0.035         # ripple bump on the flood sheet (a torrent, not glass);
+                                     # was 0.20 -> the raised micro-relief caught the sky as
+                                     # bright speckle/scratches. The flow texture now lives in
+                                     # the baked colour (broad lanes), so the sheet only needs
+                                     # a whisper of surface break-up.
+FLOOD_WAVE_SCALE     = 90.0          # ripple scale (bigger = finer chop at scene scale)
 FLOOD_FRONT_SOFTNESS = 0.08          # softness of the advancing flood front (fraction of along)
 FLOOD_CORRIDOR_PNG   = None          # None = read 'flood_corridor_png' from meta
 FLOOD_ADVANCE        = 1.0           # still: reveal fraction 0..1 (source->lip). 1 = full.
                                      # the 'flood_advance' animation sweeps this 0 -> 1.
 
 # --- zoom / framing ---
-#CAM_TARGET_OFFSET_KM = (12.0, -6.0)  # regional overview: centres the escarpment lip
-CAM_TARGET_OFFSET_KM = (2.0, 4.0)  # hero crop: lip at (532600,4074000) vs crop centre
+CAM_TARGET_OFFSET_KM = (2.5, -17.5)  # regional overview: centres the escarpment lip;
+                                     # shifted 15 km SW (screen-left) so the frame slides
+                                     # RIGHT and the DEM cut edge north of Etna (grey
+                                     # void) leaves the top-right corner
+#CAM_TARGET_OFFSET_KM = (2.0, 4.0)  # hero crop: lip at (532600,4074000) vs crop centre
                                     # (530000,4070000) -> nudge look-at onto the falls
 # to zoom: raise CAM_LENS_MM (telephoto, keeps perspective) or lower CAM_DISTANCE_KM (move in)
 
@@ -306,8 +356,9 @@ def make_terrain(meta):
             cmap_png = dry_png
             log("terrain colour: using pre-flood colormap (%s) for flood_advance" % dry_png)
     has_cmap = cmap_png and os.path.isfile(os.path.join(DATA_DIR, cmap_png))
+    _cam_dist = CAM_DISTANCE_KM if CAM_DISTANCE_KM else 1.6 * max(width_km, height_km)
     if PHOTOREAL and has_cmap:
-        _terrain_material_albedo(terrain, os.path.join(DATA_DIR, cmap_png))
+        _terrain_material_albedo(terrain, os.path.join(DATA_DIR, cmap_png), _cam_dist)
     elif USE_COLORMAP and has_cmap:
         _terrain_material_colormap(terrain, os.path.join(DATA_DIR, cmap_png))
     else:
@@ -315,10 +366,11 @@ def make_terrain(meta):
     return terrain, ve, width_km, height_km
 
 
-def _terrain_material_albedo(obj, colormap_path):
+def _terrain_material_albedo(obj, colormap_path, cam_dist_km=100.0):
     """Photoreal: baked colormap as diffuse albedo on a Principled BSDF, lit by the
     real sun so canyon walls cast shadows. (Bake the colormap flatter - lower the
-    merge hillshade - if the combined shading looks too strong.)"""
+    merge hillshade - if the combined shading looks too strong.) Optional sediment
+    colour variation + micro rock bump + distance haze for a natural-landscape look."""
     img = bpy.data.images.load(colormap_path)        # sRGB colour
     mat = bpy.data.materials.new("terrain_albedo")
     mat.use_nodes = True
@@ -334,8 +386,69 @@ def _terrain_material_albedo(obj, colormap_path):
         bsdf.inputs["Specular IOR Level"].default_value = 0.1
     except KeyError:
         pass
-    nt.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
-    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+
+    # sediment patches: a broad noise brightens/darkens the baked albedo by +-VAR, so the
+    # ground isn't one flat tan slab. albedo * grey(map(noise)) via a MULTIPLY mix.
+    base_out = tex.outputs["Color"]
+    if TERRAIN_DETAIL and TERRAIN_COLOR_VAR > 0:
+        cnoise = nt.nodes.new("ShaderNodeTexNoise")
+        cnoise.inputs["Scale"].default_value = TERRAIN_COLOR_SCALE
+        try:
+            cnoise.inputs["Detail"].default_value = 5.0
+        except KeyError:
+            pass
+        cmap = nt.nodes.new("ShaderNodeMapRange")
+        cmap.inputs["To Min"].default_value = 1.0 - TERRAIN_COLOR_VAR
+        cmap.inputs["To Max"].default_value = 1.0 + TERRAIN_COLOR_VAR
+        nt.links.new(cnoise.outputs["Fac"], cmap.inputs["Value"])
+        cmix = nt.nodes.new("ShaderNodeMixRGB")
+        cmix.blend_type = "MULTIPLY"
+        cmix.inputs["Fac"].default_value = 1.0
+        nt.links.new(tex.outputs["Color"], cmix.inputs["Color1"])
+        nt.links.new(cmap.outputs["Result"], cmix.inputs["Color2"])   # value -> grey broadcast
+        base_out = cmix.outputs["Color"]
+    nt.links.new(base_out, bsdf.inputs["Base Color"])
+
+    # micro rock bump: fine procedural relief so the smooth DEM surface reads as rock/
+    # sediment, not moulded clay. Subtle - a strong bump looks like sandpaper.
+    if TERRAIN_DETAIL and TERRAIN_BUMP_STRENGTH > 0:
+        bnoise = nt.nodes.new("ShaderNodeTexNoise")
+        bnoise.inputs["Scale"].default_value = TERRAIN_BUMP_SCALE
+        try:
+            bnoise.inputs["Detail"].default_value = 8.0
+            bnoise.inputs["Roughness"].default_value = 0.7
+        except KeyError:
+            pass
+        bump = nt.nodes.new("ShaderNodeBump")
+        bump.inputs["Strength"].default_value = TERRAIN_BUMP_STRENGTH
+        nt.links.new(bnoise.outputs["Fac"], bump.inputs["Height"])
+        nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+
+    # distance haze: mix the surface toward a haze emission by camera distance, so far
+    # terrain fades into the sky (atmospheric perspective). Reliable in headless Cycles.
+    surf_out = bsdf.outputs["BSDF"]
+    if PHOTOREAL and ATMOSPHERE and HAZE_STRENGTH > 0:
+        camd = nt.nodes.new("ShaderNodeCameraData")
+        mr = nt.nodes.new("ShaderNodeMapRange")
+        mr.inputs["From Min"].default_value = float(HAZE_START_KM)
+        mr.inputs["From Max"].default_value = float(HAZE_END_KM)
+        mr.inputs["To Min"].default_value = 0.0
+        mr.inputs["To Max"].default_value = float(HAZE_STRENGTH)
+        try:
+            mr.clamp = True
+        except AttributeError:
+            pass
+        nt.links.new(camd.outputs["View Distance"], mr.inputs["Value"])
+        haze = nt.nodes.new("ShaderNodeEmission")
+        haze.inputs["Color"].default_value = (*HAZE_COLOR, 1)
+        haze.inputs["Strength"].default_value = float(HAZE_EMIT_STRENGTH)
+        mixsh = nt.nodes.new("ShaderNodeMixShader")
+        nt.links.new(mr.outputs["Result"], mixsh.inputs["Fac"])
+        nt.links.new(bsdf.outputs["BSDF"], mixsh.inputs[1])
+        nt.links.new(haze.outputs["Emission"], mixsh.inputs[2])
+        surf_out = mixsh.outputs["Shader"]
+
+    nt.links.new(surf_out, out.inputs["Surface"])
     obj.data.materials.append(mat)
 
 
@@ -464,27 +577,69 @@ def _water_material_flat(water):
 
 
 def _water_material_real(water):
-    """Reflective/refractive water with subtle ripples; reflects the sky (use a sky)."""
+    """Reflective/refractive sea with layered swell + chop and broad colour patches, so
+    the receiving basin reads as a living ocean instead of a flat blue slab. Reflects the
+    sky (use a sky)."""
     mat = bpy.data.materials.new("water_real")
     mat.use_nodes = True
     nt = mat.node_tree
     bsdf = nt.nodes.get("Principled BSDF")
-    bsdf.inputs["Base Color"].default_value = (*WATER_COLOR, 1)
     bsdf.inputs["Roughness"].default_value = WATER_ROUGHNESS
     _set_input(bsdf, ["Transmission Weight", "Transmission"], WATER_TRANSMISSION)
     _set_input(bsdf, ["IOR"], WATER_IOR)
-    # subtle ripples: noise -> bump -> normal
-    if WATER_WAVE_STRENGTH > 0:
-        noise = nt.nodes.new("ShaderNodeTexNoise")
-        noise.inputs["Scale"].default_value = WATER_WAVE_SCALE
+
+    # base colour: broad low-frequency noise mixes deep <-> lighter blue -> ocean patches
+    if SEA_COLOR_VARIATION > 0:
+        cnoise = nt.nodes.new("ShaderNodeTexNoise")
+        cnoise.inputs["Scale"].default_value = SEA_COLOR_SCALE
         try:
-            noise.inputs["Detail"].default_value = 4.0
+            cnoise.inputs["Detail"].default_value = 2.0
         except KeyError:
             pass
-        bump = nt.nodes.new("ShaderNodeBump")
-        bump.inputs["Strength"].default_value = WATER_WAVE_STRENGTH
-        nt.links.new(noise.outputs["Fac"], bump.inputs["Height"])
-        nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+        cfac = nt.nodes.new("ShaderNodeMath")
+        cfac.operation = "MULTIPLY"; cfac.use_clamp = True
+        cfac.inputs[1].default_value = float(SEA_COLOR_VARIATION)
+        nt.links.new(cnoise.outputs["Fac"], cfac.inputs[0])
+        cmix = nt.nodes.new("ShaderNodeMixRGB")
+        try:
+            cmix.inputs["Color1"].default_value = (*WATER_COLOR, 1)
+            cmix.inputs["Color2"].default_value = (*SEA_COLOR_LIGHT, 1)
+            nt.links.new(cfac.outputs["Value"], cmix.inputs["Fac"])
+            nt.links.new(cmix.outputs["Color"], bsdf.inputs["Base Color"])
+        except (KeyError, TypeError):
+            bsdf.inputs["Base Color"].default_value = (*WATER_COLOR, 1)
+    else:
+        bsdf.inputs["Base Color"].default_value = (*WATER_COLOR, 1)
+
+    # waves: layer a large rolling SWELL under the medium CHOP by chaining two bump nodes
+    prev_normal = None
+    if WATER_WAVE_STRENGTH > 0:
+        chop = nt.nodes.new("ShaderNodeTexNoise")
+        chop.inputs["Scale"].default_value = WATER_WAVE_SCALE
+        try:
+            chop.inputs["Detail"].default_value = 4.0
+        except KeyError:
+            pass
+        bump1 = nt.nodes.new("ShaderNodeBump")
+        bump1.inputs["Strength"].default_value = WATER_WAVE_STRENGTH
+        nt.links.new(chop.outputs["Fac"], bump1.inputs["Height"])
+        prev_normal = bump1.outputs["Normal"]
+    if SEA_SWELL_STRENGTH > 0:
+        swell = nt.nodes.new("ShaderNodeTexNoise")
+        swell.inputs["Scale"].default_value = SEA_SWELL_SCALE
+        try:
+            swell.inputs["Detail"].default_value = 2.0
+        except KeyError:
+            pass
+        bump2 = nt.nodes.new("ShaderNodeBump")
+        bump2.inputs["Strength"].default_value = SEA_SWELL_STRENGTH
+        nt.links.new(swell.outputs["Fac"], bump2.inputs["Height"])
+        if prev_normal is not None:
+            nt.links.new(prev_normal, bump2.inputs["Normal"])   # swell rides under the chop
+        prev_normal = bump2.outputs["Normal"]
+    if prev_normal is not None:
+        nt.links.new(prev_normal, bsdf.inputs["Normal"])
+
     # enable refraction in EEVEE (legacy + Next); Cycles needs nothing
     for attr, val in (("use_screen_refraction", True), ("use_raytrace_refraction", True)):
         try:
@@ -624,8 +779,9 @@ def _flood_sheet_material(obj, corr_path):
         except KeyError:
             pass
         hadd = nt.nodes.new("ShaderNodeMath")
-        hadd.operation = "MULTIPLY_ADD"          # height = foam * 0.6 + noise
-        hadd.inputs[1].default_value = 0.6
+        hadd.operation = "MULTIPLY_ADD"          # height = foam * 0.25 + noise
+        hadd.inputs[1].default_value = 0.25      # was 0.6: foam-driven raised ridges
+                                                 # caught the sky as hard white scratches
         nt.links.new(sep.outputs["Blue"], hadd.inputs[0])
         nt.links.new(noise.outputs["Fac"], hadd.inputs[2])
         bump = nt.nodes.new("ShaderNodeBump")
