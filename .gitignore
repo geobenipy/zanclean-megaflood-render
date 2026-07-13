@@ -1,1 +1,15 @@
+# renders, DEMs and masks: large and fully reproducible from the two scripts
 output*/
+
+# throwaway probes (see README "Verification")
+_probe_*
+
+# python / numba caches
+__pycache__/
+*.py[cod]
+*.nbc
+*.nbi
+
+# run logs
+*.log
+*.err

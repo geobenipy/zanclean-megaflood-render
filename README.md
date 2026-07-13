@@ -1,8 +1,19 @@
 # Palaeo-DEM → 3D perspective render (Noto Canyon waterfall)
 
-A two-step, install-free pipeline to build a Fig.-4-style oblique perspective
+A three-step, install-free pipeline to build a Fig.-4-style oblique perspective
 view of the fossil waterfall, by fusing your modern topo-bathymetry with the
 interpreted MES surface and rendering it in Blender.
+
+```
+merge_paleo_dem.py   →  output_vN/   →  render_waterfall.py  →  PNG
+   (plain Python)        (the only        (inside Blender)
+                          contract)
+                                       →  video_gen.py        →  MP4
+```
+
+The two heavy scripts never import each other. Their **only** contract is the
+output directory, described by `heightmap_meta.json`. Everything else is a CONFIG
+block edit at the top of each file.
 
 This reproduces the core method of Madof et al. (Nat. Geosci. 2026): they
 warped the modern topography-bathymetry where palaeo-isolines were sparse and
@@ -63,10 +74,16 @@ Key settings:
 *not* the modern seafloor — because the modern seafloor there is the
 post-flood *filled* surface. The MES is the palaeo-surface the waterfall cut.
 
-Outputs (in `out/`):
+Outputs (in `OUT_DIR`, e.g. `output_v17/`):
 - `merged_paleo_dem.tif` — georeferenced DEM (open in QGIS to sanity-check)
-- `heightmap_16bit.png` — for Blender
-- `heightmap_meta.json` — real-world z/extent mapping (Blender reads this)
+- `heightmap_16bit.png` — terrain, for Blender
+- `heightmap_meta.json` — **the manifest**: names every other file and carries the
+  physical scale (`zmin_m`/`zmax_m`, `width_m`, `pixel_m`, `paleo_sea_level_m`, `ve_hint`)
+- `colormap.png` / `colormap_dry.png` — baked albedo, with and without the flood
+- `flood_corridor.png` — RGB mask: **R** = coverage, **G** = along-path 0–1, **B** = foam
+- `flood_surface_16bit.png` — the flood's water-surface elevation
+- `flood_relief_16bit.png` — **signed** cascade relief in metres (see below)
+- `flood_mist.png` — spray density for the Blender volume
 - `hillshade_qc.png` — quick visual QC
 
 Look at `hillshade_qc.png` first. The amphitheatre bowl should be obvious and
@@ -104,32 +121,108 @@ Knobs to turn:
 
 The automatic D8 rivers look like *rivers* because they are (flow accumulation).
 The Zanclean flood was the single largest flood in Earth history — one colossal
-torrent, not a dendritic network. So you **trace the route yourself** and the
-script rolls a wide flood down it.
+torrent, not a dendritic network. So the route is **one hand-placed polyline**
+(`MEGAFLOOD_PATH`, waypoints source→plunge) and the script rolls a wide flood
+down it. Use `MEGAFLOOD_PATH_UNITS="crs"` and give target-CRS metres (read off
+QGIS); the image-fraction mode exists but is crop-dependent.
 
-1. Do a first run, open `colormap.png`.
-2. Read the waypoints of the route you want straight off the image: for each bend,
-   `fx = x_pixel / width`, `fy = y_pixel / height` (`(0,0)` = top-left). List them
-   source→plunge in `MEGAFLOOD_PATH` (or use `MEGAFLOOD_PATH_UNITS="crs"` and read
-   metres off QGIS for precision).
-3. Set `MEGAFLOOD_HALFWIDTH_KM` — half-widths in km per waypoint. Big upstream
-   (e.g. 24 → a 48 km torrent), pinch through the canyon head (~5), fan at the
-   plume (~15). Re-run.
+`MEGAFLOOD_HALFWIDTH_KM` gives the half-width in km at each waypoint: wide where
+it drains the deep trough, narrowing along the shelf, **pinched hard at the lip**
+(a wide falling front drapes the cascade sideways along the escarpment instead of
+down the canyon — more water in the canyon comes from `FILL_DEPTH`, i.e. a thicker
+sheet, not a wider front).
 
 You get: clean Atlantic blue at the inlet → turbid sediment toward the canyon →
 white foam where it plunges over the escarpment, baked into `colormap.png` and
 exported as `flood_corridor.png` (the mask).
 
-**3D water + "the flood rolls in":** with `MEGAFLOOD_WRITE_MASK=True`, the Blender
-script (`SHOW_FLOOD_SHEET=True`) builds a real water sheet clipped to the corridor.
-Because it hugs the terrain it drapes down the escarpment as an actual 3D cascade
-and meets the sea plane below. Set `ANIMATE=True, ANIM_TYPE="flood_advance"` to
-sweep the flood from source to lip — the megaflood advancing and going over.
+### Measure the route, don't eyeball it
 
-Knobs: `MEGAFLOOD_FEATHER_KM` (torrent edge softness), `MEGAFLOOD_FOAM_BAND_KM`
-(whitewater width at the rim), `MEGAFLOOD_SCOUR_M` (carve an incised megachannel
-into the geometry), `MEGAFLOOD_CONFINE_TO_LOW` (fill valleys vs. overtop — a
-megaflood overtops, so leave it False for maximum drama).
+**Do not trace what looks right.** Twice now an eyeballed route has been overturned
+by a **minimax / least-rise search** (Dijkstra where a path's cost is the *highest
+cell it must cross*):
+
+- The first route climbed a **+46 m** sill. The water had to pond ~100 m deep just
+  to get over ground it never needed to cross — and *that*, not any shader setting,
+  was why the flood rendered as an inland reservoir.
+- Constraining the same search to the band along the Sicilian margin puts the river
+  on the anastomosing channel the DEM actually shows. That costs head (the sill is
+  **+6 m** there against **−48 m** out on the shelf), which is paid back by
+  *narrowing* the corridor — the head goes into depth, not area.
+
+**On a cliff, only the envelope can stop water.** Terrain confinement is useless on
+an escarpment because the ground only falls. An earlier route ran along the Malta
+escarpment crest with a 13 km half-width, so the corridor lapped over the rim and
+the flood poured down the face as a *second cascade* 15 km south of the Noto Canyon.
+The cure was structural (approach the canyon head from the north-west, west of the
+crest), not cosmetic.
+
+### The corridor is a FLOW boundary, not a water level
+
+Say this in the caption. Measured on this DEM, the palaeo-topography here is a broad
+**basin, not a valley**: at *any* water level the connected flooded area is an inland
+sea (38 % of the frame even at −31 m). So the terrain **cannot** confine a river, and
+a corridor with terrain-cut banks is not achievable at equilibrium — the honest
+equilibrium picture is a lake.
+
+The figure therefore shows the flood as a **snapshot of an advancing torrent** that
+has crossed the dry basin and not yet filled it. On that reading the corridor edge is
+the *flow front*, not a shoreline, and the envelope is the right tool.
+
+### 3D water, cascade geometry, spray
+
+With `MEGAFLOOD_WRITE_MASK=True`, the Blender script (`SHOW_FLOOD_SHEET=True`) builds a
+real water sheet at the flood's water surface, clipped to the corridor.
+
+A heightfield has **one z per cell**, so falling water can never be *painted* on it —
+bump on a smooth sheet at km scale just returns the sky (the 1.8 km cataract rendered
+as pale blobs). Instead the merge bakes the cascade's surface structure as a signed
+relief in metres (`flood_relief_16bit.png`) and Blender displaces the sheet with it:
+the wave crests become **real geometry** that catches the sun and shades its own
+troughs. `CASCADE_RELIEF_SCALE` retunes the amplitude in the render, without a re-merge.
+
+The spray plume at the foot of the fall is a bounded Principled Volume box whose
+density comes from `flood_mist.png`. `MIST_DENSITY` is the one knob (≈1.0 is a veil you
+can still see through; 2.2 buries the canyon in fog).
+
+`ANIMATE=True, ANIM_TYPE="flood_advance"` sweeps the flood source→lip: the megaflood
+advancing and going over.
+
+Other knobs: `MEGAFLOOD_FEATHER_KM` / `MEGAFLOOD_FALLS_FEATHER_KM` (soft rim on the
+flats vs. the tight rim on the falling cascade), `MEGAFLOOD_CONFINE_TO_TERRAIN`,
+`MEGAFLOOD_POOLING`, `MEGAFLOOD_CONNECTED_FILL`, `MEGAFLOOD_FILL_DEPTH_M`.
+
+**`MEGAFLOOD_SCOUR_M` — leave at 0.** It carves the corridor into the heightmap tapered
+by the corridor weight, i.e. it *prints the corridor polygon into the DEM*: at 190 m,
+78 % of the shoreline ended up sitting on the scour ramp rather than on real topography.
+That is a data-falsifying edit of a terrain that is supposed to **be** the data.
+
+---
+
+## Traps that cost real time (read before debugging)
+
+- **Never blur a one-sided field.** The shoreline is de-jagged by smoothing depth before
+  thresholding it. Smoothing `clip(zwater − terrain, 0, None)` bleeds the water's depth
+  *outward onto dry ground*, and the deeper the water at the shore, the further it bleeds.
+  Against a steep bank this painted a translucent water film a **kilometre up the dry
+  hillside**, which flashes white at a grazing sun and looks exactly like a water wall.
+  Smooth the **signed** field: dry ground is negative and cancels the bleed, so the blur
+  moves the zero *contour* instead of inflating the region. Same trap in `grey_closing`
+  (it is *extensive*) — restrict it to cells genuinely enclosed by water.
+- **Don't boost a bump on steep, VE-exaggerated geometry.** `ShaderNodeBump` differentiates
+  in screen space, and on the escarpment the displaced quads are nearly vertical and hugely
+  stretched — exactly where that derivative is least reliable. Multiplying the bump there
+  rendered the cliff as blistered scales.
+- **Procedural feature sizes must be physical.** Feed noise through *Object* coordinates
+  (scene units are km) so a "grain size" is a real length. Generated coordinates normalise
+  over the bounding box, so the same constant means 930 m in the regional shot and 310 m in
+  the hero — and is anisotropic besides.
+- **Cycles 5.1 hard-crashes** on an image texture inside a volume shader on a **shadow ray**
+  (`EXCEPTION_ACCESS_VIOLATION`). It is size-dependent, so it looks like an OOM and is not.
+  Fix: `box.visible_shadow = False`.
+- **The Mist compositor pass does not apply headless**, and a world Volume Scatter turns a
+  km-scale scene black. Atmospheric haze is done as a MixShader in the terrain material,
+  keyed to camera distance in absolute km.
 
 ---
 
@@ -175,6 +268,39 @@ GeoTIFF in QGIS to set it.
 ---
 
 ## Files
-- `merge_paleo_dem.py` — DEM fusion + heightmap export
-- `render_waterfall.py` — Blender scene builder + render
+- `merge_paleo_dem.py` — DEM fusion + megaflood + heightmap/mask export (plain Python)
+- `render_waterfall.py` — Blender scene builder + render (**runs inside Blender**)
+- `video_gen.py` — assembles a frame sequence into an MP4 (imageio + FFmpeg on PATH)
 - `README.md` — this file
+
+`output*/` is gitignored — the renders and DEMs are large and reproducible.
+
+---
+
+## 3. Video — `video_gen.py`
+
+```bash
+python video_gen.py
+```
+
+Needs `imageio tqdm` and FFmpeg on PATH. Point it at the frame sequence written by
+`ANIMATE=True` in the render script.
+
+---
+
+## Verification
+
+There are no tests, no linter and no build. **Verification is visual:**
+
+1. After a merge, open `hillshade_qc.png`. The canyon must read as a **bowl** (if it is a
+   hill, flip `MES_IS_DEPTH`), and the MES/modern seam must be smooth.
+2. Then render. `DATA_DIR` in `render_waterfall.py` **must** point at the `OUT_DIR` the merge
+   just wrote — pointing it at a stale directory is the single most common mistake here.
+
+For a numeric question, write a throwaway `_probe_*.py` next to the scripts (it can
+`import merge_paleo_dem` and call its functions on a decimated grid directly), then delete it.
+That is far cheaper than a ~10 min merge plus a render.
+
+Cost: a full regional merge is ~10 min, a hero merge ~5 min, and a Cycles still at the
+script's default 4800×3200 / 256 spp is roughly an hour. Drop `RES_X/RES_Y` and `SAMPLES`
+for drafts.
