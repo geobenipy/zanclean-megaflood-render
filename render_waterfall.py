@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 render_waterfall.py  --  Blender scene builder for the palaeo-DEM
@@ -40,10 +40,8 @@ from mathutils import Vector
 # =====================================================================
 # CONFIG
 # =====================================================================
-#DATA_DIR   = r"output_v11"
-#OUTPUT_PNG = r"output_v11\render_waterfall.png"
-DATA_DIR   = r"output_hero_v17"
-OUTPUT_PNG = r"output_hero_v17\render_waterfall.png"
+DATA_DIR   = r"output_overviewv2"
+OUTPUT_PNG = r"output_overviewv2\render_waterfall_v5.png"
 
 # --- console ---
 QUIET = True                         # clean output: one progress bar + summary. False = verbose debug logs
@@ -52,30 +50,30 @@ QUIET = True                         # clean output: one progress bar + summary.
 SUBDIVISIONS = 2400                  # grid resolution (cuts per side). 600-1000 for the
                                      # regional view; 1600 for the hero crop (70 km / 1600
                                      # = 44 m/quad, matches the 25 m heightmap better)
-# VE         = 3                     # regional overview
-VE           = None                  # None = ve_hint from metadata (hero merge writes 5)
+VE           = 3                     # regional overview
+# VE         = None                  # None = ve_hint from metadata (hero merge writes 5)
 
 # --- camera (oblique "fly-over" view) ---
-#CAM_AZIMUTH_DEG  = 300.0          # regional overview: oblique from the SE, swung ~10 deg
-                                  # more from the E (viewer's right) so the DEM cut-edge
-                                  # void behind Etna leaves the frame
-#CAM_ALTITUDE_DEG = 24.0
-#CAM_DISTANCE_KM  = None           # None = auto (~1.6 x scene width)
-CAM_AZIMUTH_DEG  = 250.0           # hero: from over the Ionian, looking WSW straight
+CAM_AZIMUTH_DEG  = 300.0           # regional overview: oblique from the SE, swung ~10 deg
+                                   # more from the E (viewer's right) so the DEM cut-edge
+                                   # void behind Etna leaves the frame
+CAM_ALTITUDE_DEG = 24.0
+CAM_DISTANCE_KM  = None            # None = auto (~1.6 x scene width) = 448 km here
+#CAM_AZIMUTH_DEG  = 250.0          # hero: from over the Ionian, looking WSW straight
                                     # at the escarpment wall + the falls in the notch
-CAM_ALTITUDE_DEG = 24.0            # LOWER than the old 30: a waterfall is a VERTICAL event, and
+#CAM_ALTITUDE_DEG = 24.0           # LOWER than the old 30: a waterfall is a VERTICAL event, and
                                     # at 30 deg the camera looked down ON the chute so the 1.8 km
                                     # drop foreshortened into a blue patch on a slope. But 18 deg
                                     # (tried) is too low for this crop - the camera sees PAST the
                                     # DEM's north-west edge and the frame fills with the cut-edge
                                     # void plus a 60 km flat lake blowing out white at grazing
                                     # incidence. 24 keeps the drop steep and the data in frame.
-CAM_DISTANCE_KM  = 80.0            # hero: pulled back (was 70) so the WHOLE canyon fits
+#CAM_DISTANCE_KM  = 80.0           # hero: pulled back (was 70) so the WHOLE canyon fits
                                     # (hero_v6 was too tight)
-#CAM_LENS_MM      = 160.0            # regional overview: zoomed into the escarpment/canyon
+CAM_LENS_MM      = 160.0            # regional overview: zoomed into the escarpment/canyon
                                     # (was 118) so the waterfall reads and the far void goes
 
-CAM_LENS_MM    = 88.0             # hero: TIGHT on the cascade (was 62). 62 fitted the whole
+#CAM_LENS_MM    = 88.0            # hero: TIGHT on the cascade (was 62). 62 fitted the whole
                                     # canyon but spent half the frame on the distant approach
                                     # lake - a flat plate that at a low camera angle reads as a
                                     # blown-out white slab with a straight DEM-edge cut. The
@@ -83,10 +81,10 @@ CAM_LENS_MM    = 88.0             # hero: TIGHT on the cascade (was 62). 62 fitt
                                     # by CAM_DISTANCE_KM: it keeps the perspective compression.)
 
 # --- sun ---
-#SUN_AZIMUTH_DEG = 130.0           # regional overview: ESE (roughly BEHIND the camera) so
-                                  # the sun's reflection glitters the foreground Ionian.
-                                  # (was 315/NW relief light - swapped for the sea glitter)
-SUN_AZIMUTH_DEG   = 85.0            # hero: ENE, ~behind the WSW-facing camera -> lights
+SUN_AZIMUTH_DEG  = 130.0           # regional overview: ESE (roughly BEHIND the camera) so
+                                   # the sun's reflection glitters the foreground Ionian.
+                                   # (was 315/NW relief light - swapped for the sea glitter)
+#SUN_AZIMUTH_DEG   = 85.0           # hero: ENE, ~behind the WSW-facing camera -> lights
                                     # INTO the amphitheatre AND glitters the foreground
                                     # Ionian (SE light let the rim shadow cut the falls)
 SUN_ALTITUDE_DEG  = 22.0           # low: a long glitter path across the sea
@@ -193,14 +191,16 @@ HAZE_EMIT_STRENGTH = 1.1            # haze brightness (match the horizon sky so 
 # km) keeps its NEAR ground crisp and only the FAR mountains recede into haze. START must
 # sit near the overview's near edge (~310 km) or the whole overview washes out; the hero
 # is entirely nearer than START so it stays haze-free. Lower START to push haze closer.
-#HAZE_START_KM    = 340.0          # REGIONAL overview: no haze nearer than this (near-ground crisp)
-#HAZE_END_KM      = 620.0          # full HAZE_STRENGTH at/beyond this distance (far mountains)
+HAZE_START_KM    = 340.0           # REGIONAL overview: no haze nearer than this (near-ground crisp)
+HAZE_END_KM      = 620.0           # full HAZE_STRENGTH at/beyond this distance (far mountains)
 # HERO: the camera sits ~80 km out, so terrain runs from ~40 km (foreground escarpment) to
 # ~140 km (far horizon). Haze from 85 km keeps the falls and the near canyon crisp while the
 # far edge of the DEM - the straight cut border with its lit vertical face - dissolves into
 # the sky instead of announcing itself as a cliff. Swap the comments for the overview.
-HAZE_START_KM    = 85.0
-HAZE_END_KM      = 150.0
+# NOTE: leaving the HERO pair active on the 448 km overview camera puts the WHOLE terrain
+# beyond HAZE_END -> full haze mix everywhere, i.e. the flat grey wash (seen in v4).
+#HAZE_START_KM    = 85.0
+#HAZE_END_KM      = 150.0
 
 # --- realistic water (used when PHOTOREAL) ---
 WATER_ROUGHNESS     = 0.16          # low enough that the sun stays a sharp highlight the
@@ -335,9 +335,12 @@ FLOOD_ADVANCE        = 1.0           # still: reveal fraction 0..1 (source->lip)
                                      # the 'flood_advance' animation sweeps this 0 -> 1.
 
 # --- zoom / framing ---
-#CAM_TARGET_OFFSET_KM = (14.0, -9.0) # regional overview: recentred onto the escarpment
-                                     # lip / canyon for the zoomed-in (lens 160) framing
-CAM_TARGET_OFFSET_KM = (6.5, 7.0)   # hero crop: same look-at point as the old (0.5, 7.0), just
+CAM_TARGET_OFFSET_KM = (14.0, -9.0)  # regional overview: recentred onto the escarpment
+                                     # lip / canyon for the zoomed-in (lens 160) framing.
+                                     # (The plunge itself sits at scene (6, -3) km - read off
+                                     # the merge's mist_bbox_uv - so this looks just SE of it,
+                                     # which puts the canyon centre-frame at az 300.)
+#CAM_TARGET_OFFSET_KM = (6.5, 7.0)  # hero crop: same look-at point as the old (0.5, 7.0), just
                                     # re-expressed for the WIDER crop box - the box centre moved
                                     # 6 km west, so the offset has to move 6 km east to keep the
                                     # falls framed where they were.

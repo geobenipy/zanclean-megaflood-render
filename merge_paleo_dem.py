@@ -106,7 +106,7 @@ SUBSIDENCE_ELEV_FULL  = -2300.0      # below this elevation: full correction (sm
 PALEO_SEA_LEVEL_M = -2000.0          # desiccated lowstand relative to present sea level
 
 # ---- OUTPUT ----
-OUT_DIR           = "output_v17"       # REGIONAL / panel a. v13-v14 = open envelope -> the flood's true
+OUT_DIR           = "output_overviewv2"       # REGIONAL / panel a. v13-v14 = open envelope -> the flood's true
                                        # EQUILIBRIUM extent (an inland lake). v15 = back to the RIVER, on
                                        # the measured low route (an advancing-torrent snapshot), but it ran
                                        # out on the southern shelf and lapped the Malta escarpment rim.
