@@ -143,6 +143,95 @@ WRITE_COLORMAP  = True
 COLORMAP_SCHEME = "desiccated"       # "desiccated" (dry drylands) | "bathymetric" (blue sea, green land)
 COLORMAP_HILLSHADE = False            # bake hillshade into colour (map look). False for PHOTOREAL.
 
+# ---- SURFACE FACIES TEXTURE (bake into the colormap; the Madof Fig-4 look) ----
+# The reference figure reads as a satellite image because its dry ground carries
+# surface FACIES: dendritic gully networks on every slope, bright evaporite playas in
+# enclosed lows, teal brine ponds in the deepest pans. Our colormap was keyed to
+# elevation alone -> the uniform-tan "clay model". Every layer below derives from the
+# DEM itself (D8 drainage, depression filling) - no hand-painted geology - and is
+# painted BEFORE the flood layers, so the megaflood always wins.
+TEXTURE_FACIES   = True              # master switch for this block
+GULLY_TEXTURE    = True              # dendritic drainage as dry TONE (incised gullies, NOT
+                                     # water: neutral darkening, so nothing reads as flow
+                                     # down the Malta escarpment - only the corridor flows)
+GULLY_MIN_KM2    = 1.5               # channel = cells draining more than this (km2)
+GULLY_DARKEN     = 0.26              # max darkening inside a gully (fraction of albedo).
+                                     # 0.16 was invisible at the render's 58 m/px.
+GULLY_BLUR_M     = 90.0              # soften the 1-px D8 threads to ~gully width
+SLOPE_TONE       = 0.20              # darken steep ground (bare rock) up to this fraction
+                                     # (0.14 too subtle next to the reference's dark slopes)
+SLOPE_TONE_FULL  = 0.18              # slope (m/m) at which that darkening saturates
+PLAYA_ENABLE     = True              # bright evaporite flats in enclosed depressions
+PLAYA_RGB        = (0.90, 0.89, 0.83)   # gypsum/halite cream
+POOL_ENABLE      = True              # teal brine ponds in the DEEPEST pans
+POOL_RGB         = (0.24, 0.55, 0.55)   # hypersaline teal (the reference's small ponds)
+POOL_MIN_DEPTH_M = 25.0              # enclosure deeper than this holds standing brine
+DEPRESSION_MAX_M = 90.0              # only depressions whose TOTAL enclosure is below this
+                                     # get playa/pool paint. The upstream basin is enclosed
+                                     # ~800 m deep by the canyon-head sill - painting its
+                                     # rim contours would re-create the rejected inland-
+                                     # lake look. Local pans only.
+PLAYA_MIN_AREA_KM2 = 2.5             # bake v1 had no size filter -> white CONFETTI: thousands
+                                     # of pixel-scale terrace pits painted as pans. Real
+                                     # playas are the big flats only.
+PLAYA_ABOVE_SEA_M  = 30.0            # pans only ABOVE paleo sea level + this margin. Bake v1
+                                     # painted the deep Ionian floor (invisible under the sea
+                                     # plane anyway) and dropped white/teal blobs at the
+                                     # escarpment foot right beside the plunge.
+FACIES_BELOW_M   = -40.0             # playas/pools only below this elevation (exposed
+                                     # seafloor facies - not the modern Sicilian uplands)
+PROVINCE_VAR     = 0.13              # broad sediment-province albedo variation (+-fraction)
+PROVINCE_SCALE_M = 45000.0           # province patch size (m)
+PROVINCE_VAR2    = 0.08              # second, finer octave
+PROVINCE_SCALE2_M = 9000.0
+
+# ---- BRAIDED CHANNEL THREADS in the flood belt ----
+# The reference's Nahr Menashe is a braided BELT: many dark anastomosing threads with
+# pale bars between. The DEM along the Sicilian margin has that channel system (see
+# MEGAFLOOD_PATH), but the colour ramp could not show it: depth is smoothed ~900 m for
+# colour (kills the terrace leopard - and every thread with it). So the threads are
+# painted separately from a HIGH-PASS of the water depth: local deeps = channels
+# (darker), local shallows = bars (sandy through the shallow water). Gated to flat
+# water, so the cascade and the ponded reach keep their look - and nothing braids on
+# the escarpment.
+BRAID_THREADS      = True
+BRAID_SMOOTH_M     = 140.0           # pre-smooth of raw depth (kills 1-px terrace noise)
+BRAID_HP_M         = 700.0           # high-pass scale: threads narrower than this show.
+                                     # WAS 1600: at that scale the high-pass is dominated by
+                                     # the MES contour TERRACES (km-scale depth anomalies) and
+                                     # the belt came out as camouflage BLOBS with no flow
+                                     # direction - the leopard pattern COLOR_DEPTH_SMOOTH
+                                     # exists to kill, re-imported through the back door.
+BRAID_DEPTH_FULL_M = 22.0            # thread contrast saturates at this depth anomaly (m)
+BRAID_DARKEN       = 0.52            # thread darkening (strong: only ~35 % shows through
+                                     # the 3D sheet - FLOOD_SHEET_TRANSMISSION; 0.42 was
+                                     # invisible on the dark belt)
+BRAID_LIGHTEN      = 0.35            # bar lightening toward a sandy shoal tint (0.20 +
+                                     # the old ABSOLUTE depth<25m gate never fired on the
+                                     # 70 m belt - the gate is RELATIVE now)
+BRAID_MAX_DEPTH_M  = 160.0           # fade the braid texture out in deeper water (a deep
+                                     # reach reads as one dark body, not a braid). WAS 90:
+                                     # the racing belt itself is ~FILL_DEPTH (70 m) deep, so
+                                     # 90 halved the threads exactly where they belong.
+BRAID_FLAT_SLOPE   = 0.012           # water-surface slope below which braids show fully;
+                                     # off by ~2x this (keeps the cascade streaked white,
+                                     # not braided)
+# The DIRECTION comes from LIC noise smeared along the flow (the _flow_streaks
+# machinery the foam already uses): sinuous flow-parallel lanes, thresholded into
+# distinct anabranch threads. The depth high-pass alone has no direction - it is a
+# bias so the REAL channels of the DEM still pull threads toward themselves.
+BRAID_LANE_M       = 450.0           # width of one anabranch thread (m)
+BRAID_LEN_M        = 9000.0          # smear length: how far a thread stays coherent
+BRAID_NOISE_GAIN   = 0.70            # weight of the LIC thread field (the braid LOOK)
+BRAID_HP_GAIN      = 0.45            # weight of the real-channel depth bias
+BRAID_THRESH       = 0.15            # signed-field level where a dark thread starts
+                                     # (higher = fewer, more separated threads)
+BRAID_SHEET_FOAM   = 0.22            # carry the BARS into the corridor's B (foam) channel
+                                     # at this level: the 3D sheet itself lightens there,
+                                     # so the braid reads at ANY distance - the bed paint
+                                     # alone could not get through the semi-transparent
+                                     # sheet in the far field (measured on render v7).
+
 # ---- FLOOD along the canyon (hero shot): the megaflood as a real RIVER network
 # (D8 flow accumulation along the thalweg) plus the flooded basin, baked into the
 # colormap. The river is dendritic: tributaries converge and run down to the basin.
@@ -173,11 +262,14 @@ ZANCLEAN_FLOOD          = False     # OFF: the legacy D8-channel "waterfall zone
 ZANCLEAN_ENTRY_ELEV_M   = -500.0    # cells below this elevation in the eastern basin portion seed the corridor
 ZANCLEAN_ENTRY_FRACTION = 0.45      # fraction of grid width covered by the entry zone (measured from east/right edge)
 ZANCLEAN_CHANNEL_KM     = 12.0      # full width (km) of the flood corridor within the MES
-ZANCLEAN_DEEP_NAVY      = (0.04, 0.10, 0.30)   # deep basin (below FLOOD_BASIN_LEVEL)
-ZANCLEAN_ATLANTIC_RGB   = (0.09, 0.26, 0.54)   # clean basin water at entry (east edge = Ionian Sea)
-ZANCLEAN_TURBID_RGB     = (0.17, 0.23, 0.30)   # muddy blue-grey: sediment TINT, but the
-                                               # flood must still read as WATER (full brown
-                                               # made it look like a salt flat)
+ZANCLEAN_DEEP_NAVY      = (0.03, 0.07, 0.20)   # deep basin (was 0.04/0.10/0.30 - darkened
+                                               # 2026-07-14 with the other flood colours:
+                                               # the glossy bright flood read as gel, the
+                                               # reference's torrent is dark sediment water)
+ZANCLEAN_ATLANTIC_RGB   = (0.06, 0.18, 0.38)   # clean water at entry (was 0.09/0.26/0.54)
+ZANCLEAN_TURBID_RGB     = (0.12, 0.16, 0.21)   # muddy blue-grey (was 0.17/0.23/0.30): sediment
+                                               # TINT, but the flood must still read as WATER
+                                               # (full brown made it look like a salt flat)
 ZANCLEAN_FOAM_RGB       = (0.72, 0.85, 0.92)   # white-blue foam/spray at the cascade lip
 ZANCLEAN_CASCADE_SLOPE  = 0.80      # gradient threshold (m/m) for the cascade/foam zone
 
@@ -379,8 +471,10 @@ MEGAFLOOD_STREAK_LANE_M  = 260.0   # WIDTH (m) of a current lane: the streak noi
 # - current lanes: streak-modulate the water colour over the WHOLE flood
 # - rapids: streaky whitecaps wherever the water races (non-pooled sections)
 # - churning margins: thin foam fringe along the waterline (the flood front)
-MEGAFLOOD_BODY_STREAK_GAIN = 0.08  # +-8% colour modulation along flow lanes (0 = off):
+MEGAFLOOD_BODY_STREAK_GAIN = 0.12  # +-12% colour modulation along flow lanes (0 = off):
                                    # subtle directional current sheen on the flood body
+                                   # (0.08 -> 0.12 with the braid work: the belt needs to
+                                   # read as CURRENT, and the darker palette absorbs 8%)
 MEGAFLOOD_BODY_STREAK_LEN_M = 3500.0  # lane length (m); longer than the foam strands
 MEGAFLOOD_RAPIDS_FOAM      = 0.0   # whitecaps on the flood BODY. 0 = off: the broad lanes
                                    # smeared foam as light-blue BLOBS over the calm shallow
@@ -459,24 +553,35 @@ MEGAFLOOD_CASCADE_GATE_SMOOTH_M = 1500.0  # THE key knob. The gate must key on t
                                     # 13 km (~0.14), the flats ~0.
 MEGAFLOOD_CASCADE_SLOPE_ON = 0.035  # large-scale surface slope (m/m) where the relief starts
 MEGAFLOOD_CASCADE_SLOPE_FULL = 0.120  # ...and reaches full amplitude (the plunging chute)
-MEGAFLOOD_ROLLER_LAMBDA_M  = 700.0  # standing-wave wavelength (m). Must stay well above the
+MEGAFLOOD_ROLLER_LAMBDA_M  = 950.0  # standing-wave wavelength (m). Must stay well above the
                                     # Blender quad size (scene_width / SUBDIVISIONS ~ 38 m at
                                     # 92 km / 2400) or the mesh cannot resolve the crests and
-                                    # they alias into noise.
+                                    # they alias into noise. 700 on the REGIONAL grid (280 km /
+                                    # 2400 = 117 m quads) was only 6 quads/wave - together with
+                                    # the lambda/1.9 harmonic (4 quads!) the wave train aliased
+                                    # into round "cauliflower" lumps in the canyon (v8).
 MEGAFLOOD_ROLLER_AMP_M     = 55.0   # crest-to-trough/2 of the rollers (m). Sounds huge, and is:
                                     # the chute is 13 km long and 1.8 km deep, so a 20 m wave is
                                     # invisible. This is the "reads from orbit" exaggeration.
-MEGAFLOOD_ROLLER_JITTER    = 0.60   # 0 = perfectly regular corduroy (reads as a machined ramp);
-                                    # ~0.6 breaks the phase into irregular natural wave trains
-MEGAFLOOD_ROLLER_HARMONIC  = 0.55   # amplitude of a SECOND, shorter roller train (lambda/1.9)
+MEGAFLOOD_ROLLER_JITTER    = 0.45   # 0 = perfectly regular corduroy (reads as a machined ramp);
+                                    # was 0.60: that much phase noise destroyed the TRANSVERSE
+                                    # coherence of the crests - the waves no longer stood across
+                                    # the current but broke into isolated blobs (part of the v8
+                                    # cauliflower). 0.45 keeps crests readable as wave fronts.
+MEGAFLOOD_ROLLER_HARMONIC  = 0.40   # amplitude of a SECOND, shorter roller train (lambda/1.9)
                                     # with its own independent jitter field. One sine wave over
                                     # an EDT-propagated 'along' field reads as nested contour
                                     # lines on a map; a decorrelated second train destroys that
-                                    # periodicity. 0 = single train (the old look).
+                                    # periodicity. 0 = single train (the old look). Was 0.55: at
+                                    # lambda 700 the 368 m harmonic sat below mesh resolution and
+                                    # only added blob noise; 0.40 at lambda 950 (500 m harmonic).
 MEGAFLOOD_ROLLER_PATCHINESS = 0.55  # 0 = one even wave amplitude over the whole chute (reads as
                                     # machined). ~0.55 gives zones of stacked standing waves and
                                     # smoother glassy tongues between them, like a real cataract.
-MEGAFLOOD_STRAND_AMP_M     = 32.0   # amplitude of the flow-parallel water ropes (m)
+MEGAFLOOD_STRAND_AMP_M     = 40.0   # amplitude of the flow-parallel water ropes (m). Raised from
+                                    # 32 with the thicker canyon sheet (see MEGAFLOOD_FILL_DEPTH_M
+                                    # list): the fall should read DIRECTIONAL, and the deeper film
+                                    # can carry the ropes without trough punch-through.
 MEGAFLOOD_STRAND_LEN_M     = 2600.0 # strand length (m): long ropes down the fall line
 MEGAFLOOD_STRAND_LANE_M    = 190.0  # strand WIDTH (m). Narrower than the foam lanes (260) so
                                     # the geometry reads as many ropes, not a few fat tubes.
@@ -497,8 +602,13 @@ MEGAFLOOD_LAKE_SWELL_KM    = 2.5   # swell wavelength (km): broad ocean rollers,
 MEGAFLOOD_LAKE_SWELL_DEPTH_M = 60.0  # fade the swell out in water shallower than this. Physically
                                    # right (waves shoal and die) and it keeps the swell from
                                    # chewing a ragged waterline into the shallow margins.
-MEGAFLOOD_RELIEF_AMP_M     = 120.0  # normalisation half-range of the exported PNG (m). Must
-                                    # exceed the real max relief or the crests clip flat.
+MEGAFLOOD_RELIEF_AMP_M     = 150.0  # normalisation half-range of the exported PNG (m). Must
+                                    # exceed the real max relief or the crests clip flat. Was 120:
+                                    # rollers 55x1.6 patch + strands 40 can now stack to ~128 m
+                                    # (deep canyon sheet no longer clips the troughs first).
+                                    # NOTE any bake that rewrites flood_relief_16bit.png must also
+                                    # update flood_relief_amp_m in heightmap_meta.json (finalize
+                                    # does; a write_colormap-only driver must patch the JSON).
 MEGAFLOOD_CREST_FOAM       = 0.90   # whitewater ON THE ROLLER CRESTS. Without this the cascade
                                     # has the right geometry but the wrong colour: the foam field
                                     # is computed from the water-surface slope and knows nothing
@@ -520,14 +630,20 @@ MEGAFLOOD_CONFINE_TO_TERRAIN = True   # False = old behaviour (overtop everythin
 # the water level in the corridor = sill elevation + this depth. The route sill sits
 # at ~+45 m, so 60 m -> overspill level ~ +105 m. Downstream of the sill it is the
 # sheet thickness pouring over the escarpment. Raise for a wider/deeper torrent.
-MEGAFLOOD_FILL_DEPTH_M = 70.0   # RAISED from 45: this is the head over the sill NOTCH, and
-                                # downstream of the sill it is the SHEET THICKNESS pouring over
-                                # the lip - so it, not the corridor width, is the knob for "more
-                                # water in the canyon". 45 fed the canyon only in thin threads
-                                # (the flood mostly stood on the plateau); 70 sends a solid
-                                # sheet over the escarpment. The shoreline stays terrain-cut
-                                # because EDGE_DROP is steep again. (Below ~30 the braid bars
-                                # dominate the sill crossing and the water reads as vanishing.)
+#
+# MAY BE A LIST (one value per MEGAFLOOD_PATH waypoint, interpolated along the route
+# like MEGAFLOOD_HALFWIDTH_KM) - that is the knob for "more water ONLY in the canyon".
+# Raising the scalar raises the upstream lake too; raising it only where the bed has
+# already plunged below the controlling sill (wp 14+) thickens the cascade sheet and
+# leaves the pooled profile upstream mathematically untouched (the suffix-max never
+# sees these values). MEASURED on the v8 grid (_probe_bed.py): 70 everywhere vs the
+# list below changes zw by 0.0 m at wp 0-13 and by +60..+80 m in the canyon reach.
+# 70 was the uniform value: the canyon film was so thin the roller troughs hit the
+# depth clip (0.6 x 70 = 42 m < the 55 m rollers -> flattened lumps) and tan bed
+# showed through mid-cascade.
+MEGAFLOOD_FILL_DEPTH_M = [70]*14 + [110, 160, 175, 165, 145]
+#  wp:                    0..13     14   15   16   17   18
+#                         lake/belt head lip  plunge -> plume
 
 # Cross-route notch window (km): the water profile samples the bed as the MINIMUM
 # terrain along the PERPENDICULAR cross-section of this width at each route sample,
@@ -586,10 +702,14 @@ MEGAFLOOD_HOLE_FILL_M = 700.0
 
 # Shore->deep colour: shallow water is lighter, deep water tends to the navy. Scale (m)
 # over which the flood colour deepens with water depth.
-MEGAFLOOD_DEEP_SCALE_M = 220.0    # shore->deep colour scale; higher keeps the turbid
+MEGAFLOOD_DEEP_SCALE_M = 400.0    # shore->deep colour scale; higher keeps the turbid
                                   # tone visible over deep water, lower goes navy fast.
                                   # 220: the 20-40 m sill passage reads as solid water
-                                  # (at 550 it painted as pale milky film)
+                                  # (at 550 it painted as pale milky film - but that was
+                                  # with the OLD bright colours). 400 (2026-07-14): at 220
+                                  # the 70 m racing belt sat at dt 0.56, so dark that the
+                                  # braid threads had no contrast; mid-ramp on the darker
+                                  # palette gives the threads room and stays un-milky.
 # Smooth the water depth used for the shore->deep COLOUR ramp (m). Wide so broad MES
 # terraces don't mottle the shallow bay light/dark; the large-scale shore->deep gradient
 # survives. Colour only - extent/alpha use the raw depth.
@@ -1001,6 +1121,27 @@ def _megaflood_halfwidths_px(pixel_m, n):
     return [w * 1000.0 / pixel_m for w in hw]
 
 
+def _megaflood_fill_profile(t, pts_px):
+    """Fill depth (m) at along-param t (0..1 cumulative route distance).
+
+    MEGAFLOOD_FILL_DEPTH_M may be a scalar (uniform, the old behaviour) or a
+    per-waypoint list like MEGAFLOOD_HALFWIDTH_KM. The list is interpolated over
+    the same cumulative-distance parameter that _densify_polyline assigns to tt
+    and that rasterize_megaflood_corridor propagates as 'along', so this one
+    function serves both the 1D water profile and the 2D racing-sheet cap.
+    """
+    f = MEGAFLOOD_FILL_DEPTH_M
+    t = np.asarray(t, "float32")
+    if np.isscalar(f):
+        return np.full(t.shape, float(f), "float32")
+    p = np.asarray(pts_px, float)
+    seg = np.hypot(np.diff(p[:, 0]), np.diff(p[:, 1]))
+    cum = np.concatenate([[0.0], np.cumsum(seg)])
+    tv = cum / max(cum[-1], 1e-9)
+    return np.interp(np.nan_to_num(t, nan=0.0), tv,
+                     np.asarray(f, float)).astype("float32")
+
+
 def _densify_polyline(pts, halfw_px):
     """Sample the polyline at ~1 px spacing, carrying along-param + half-width."""
     pts = np.asarray(pts, float)
@@ -1126,14 +1267,20 @@ def _save_u8_gray(path, arr01):
 _MIST_META = {}
 
 
-def _megaflood_water_profile(arr, rr, cc, tt, pixel_m):
+def _megaflood_water_profile(arr, rr, cc, tt, pixel_m, fill=None):
     """Water-surface elevation (m) at each densified path sample, non-increasing.
 
     Auto: inlet level = channel floor near the source + MEGAFLOOD_FILL_DEPTH_M, graded
     linearly along the path to the outlet (sea level by default). Manual: interpolate
     MEGAFLOOD_WATER_ELEV_M. Always forced non-increasing downstream (water flows down).
+    `fill` = per-sample fill depth (m) from _megaflood_fill_profile; None = scalar
+    config value (only valid while MEGAFLOOD_FILL_DEPTH_M is a scalar).
     Returns (zw, pooled01): surface and per-sample pooledness (both float32).
     """
+    if fill is None:
+        fill = (float(MEGAFLOOD_FILL_DEPTH_M) if np.isscalar(MEGAFLOOD_FILL_DEPTH_M)
+                else np.interp(tt, np.linspace(0, 1, len(MEGAFLOOD_FILL_DEPTH_M)),
+                               MEGAFLOOD_FILL_DEPTH_M))
     H, W = arr.shape
     if MEGAFLOOD_BED_MIN_WINDOW_KM and MEGAFLOOD_BED_MIN_WINDOW_KM > 0:
         # bed = deepest terrain along the PERPENDICULAR cross-section (+-window/2):
@@ -1162,7 +1309,7 @@ def _megaflood_water_profile(arr, rr, cc, tt, pixel_m):
         # channel floor + fill depth: the water surface follows the terrain down the
         # route, so the flood covers the basin (~fill depth deep) and plunges where
         # the floor drops at the escarpment. Path should follow the thalweg.
-        zw = zbed + MEGAFLOOD_FILL_DEPTH_M
+        zw = zbed + fill
         if MEGAFLOOD_POOLING:
             # overflow physics: water can't slope uphill downstream. Suffix max pools
             # the surface behind the highest downstream sill (upstream lake), keeps
@@ -1172,7 +1319,7 @@ def _megaflood_water_profile(arr, rr, cc, tt, pixel_m):
         # the smoothing cuts the corner at the escarpment lip (surface rides above
         # bed+fill there), which would misclassify the upper cascade as "pooled" -
         # foam damped to zero and no thin-sheet cap right where the falls start.
-        pooled01 = np.clip((zw - (zbed + MEGAFLOOD_FILL_DEPTH_M)) / 50.0,
+        pooled01 = np.clip((zw - (zbed + fill)) / 50.0,
                            0.0, 1.0).astype("float32")
         # smooth the 1D profile ALONG the route (~1 km): the suffix-max staircase
         # (a small step wherever the bed-min envelope drops) propagates as regular
@@ -1186,7 +1333,7 @@ def _megaflood_water_profile(arr, rr, cc, tt, pixel_m):
         if MEGAFLOOD_WATER_OUTLET_M is not None:
             zw = np.maximum(zw, float(MEGAFLOOD_WATER_OUTLET_M))   # don't fall below outlet
     if MEGAFLOOD_WATER_ELEV_M is not None:
-        pooled01 = np.clip((zw - (zbed + MEGAFLOOD_FILL_DEPTH_M)) / 50.0,
+        pooled01 = np.clip((zw - (zbed + fill)) / 50.0,
                            0.0, 1.0).astype("float32")
     return zw.astype("float32"), pooled01
 
@@ -1399,8 +1546,10 @@ def compute_megaflood(arr, pixel_m, transform):
     along = gaussian_filter(along, 2000.0 / pixel_m).astype("float32")
 
     if not MEGAFLOOD_CONFINE_TO_TERRAIN:                      # legacy overtop sheet
-        zwater = (arr + MEGAFLOOD_FILL_DEPTH_M).astype("float32")
-        depth  = np.full_like(arr, MEGAFLOOD_FILL_DEPTH_M, dtype="float32")
+        fill_u = (float(MEGAFLOOD_FILL_DEPTH_M) if np.isscalar(MEGAFLOOD_FILL_DEPTH_M)
+                  else float(np.max(MEGAFLOOD_FILL_DEPTH_M)))
+        zwater = (arr + fill_u).astype("float32")
+        depth  = np.full_like(arr, fill_u, dtype="float32")
         foam   = megaflood_foam(arr, pixel_m, arr < FLOOD_BASIN_LEVEL) * (weight > 0)
         return weight, along, zwater, depth, foam.astype("float32"), None, None, None
 
@@ -1418,7 +1567,8 @@ def compute_megaflood(arr, pixel_m, transform):
     # same EDT lookup - NO along-interpolation, which re-imported profile jumps at
     # every fan collision. Computed inside the profile fn from the same (min-
     # window) bed and the PRE-smoothing profile.
-    zw_path, pooled01 = _megaflood_water_profile(arr, rr, cc, tt, pixel_m)
+    zw_path, pooled01 = _megaflood_water_profile(arr, rr, cc, tt, pixel_m,
+                                                 _megaflood_fill_profile(tt, pts))
 
     seed = np.full((H, W), np.nan, "float32")
     seed[ri, ci] = zw_path
@@ -1458,8 +1608,12 @@ def compute_megaflood(arr, pixel_m, transform):
     # cap the racing-sheet sections at bed+fill AFTER the smoothing: kills the
     # hanging skirts that smoothing builds at the cliff and at fan collisions
     # (phantom water over the open sea next to the falls). Ponded sections keep
-    # their standing level.
-    zw_thin = np.minimum(zwater, arr_sheet + MEGAFLOOD_FILL_DEPTH_M)
+    # their standing level. fill is per-cell (interpolated over the same 'along'
+    # param as the 1D profile) so a per-waypoint MEGAFLOOD_FILL_DEPTH_M list
+    # thickens the racing sheet exactly where the profile is raised.
+    fill2d = _megaflood_fill_profile(along, pts)
+    zw_thin = np.minimum(zwater, arr_sheet + fill2d)
+    del fill2d
     zwater = (pooledness * zwater + (1.0 - pooledness) * zw_thin).astype("float32")
 
     # fallsiness from the PRE-edge-drop surface: only genuinely FALLING water (the
@@ -1482,19 +1636,22 @@ def compute_megaflood(arr, pixel_m, transform):
     # bands across the calm upstream lake (the "ripple tank" in hero_v11). Damped by
     # pooledness as well, so only genuinely RACING water churns - a ponded lake behind
     # the sill has a flat surface and must stay glassy.
+    # LARGE-SCALE surface slope from the PRE-edge-drop surface: shared by the 3D
+    # relief gate AND the foam colour below. Smooth the surface BEFORE
+    # differentiating, or the thin racing sheet's bed-inherited bumps out on the
+    # flats read as "steep" (see MEGAFLOOD_CASCADE_GATE_SMOOTH_M) - and beyond the
+    # rim the artificial EDGE_DROP (0.13 m/m) reads as a cascade. Both painted
+    # cloudy foam BLOBS all over the racing belt when the foam still keyed on the
+    # raw post-drop surface (the belt's "camouflage" look, facies bakes v1/v2).
+    zw_big = gaussian_filter(zwater,
+                             MEGAFLOOD_CASCADE_GATE_SMOOTH_M / pixel_m).astype("float32")
+    gyc, gxc = np.gradient(zw_big, pixel_m); del zw_big
+    slope_ls = np.hypot(gxc, gyc).astype("float32"); del gyc, gxc
     cascade_gate = None
     if MEGAFLOOD_CASCADE_RELIEF:
-        # LARGE-SCALE fall only: smooth the surface before differentiating, or the
-        # thin racing sheet's bed-inherited bumps out on the flats read as "steep"
-        # (see MEGAFLOOD_CASCADE_GATE_SMOOTH_M).
-        zw_big = gaussian_filter(zwater,
-                                 MEGAFLOOD_CASCADE_GATE_SMOOTH_M / pixel_m).astype("float32")
-        gyc, gxc = np.gradient(zw_big, pixel_m); del zw_big
-        slc = np.hypot(gxc, gyc); del gyc, gxc
         span_c = max(MEGAFLOOD_CASCADE_SLOPE_FULL - MEGAFLOOD_CASCADE_SLOPE_ON, 1e-6)
-        cascade_gate = np.clip((slc - MEGAFLOOD_CASCADE_SLOPE_ON) / span_c,
+        cascade_gate = np.clip((slope_ls - MEGAFLOOD_CASCADE_SLOPE_ON) / span_c,
                                0.0, 1.0).astype("float32")
-        del slc
         cascade_gate *= np.clip(1.0 - pooledness, 0.0, 1.0).astype("float32")
         cascade_gate = gaussian_filter(cascade_gate,
                                        300.0 / pixel_m).astype("float32")
@@ -1562,10 +1719,13 @@ def compute_megaflood(arr, pixel_m, transform):
     # where the water surface drops steeply (falls) or a thin sheet races over a
     # steep bed (the lip). Wide ramp -> graded whitewater, not a saturated blob.
     # Damped by pooledness: no foam on standing lake margins.
-    gyw, gxw = np.gradient(zwater, pixel_m)
+    # Slope base = slope_ls, the LARGE-SCALE PRE-edge-drop surface slope (computed
+    # with the cascade gate above). The raw post-drop gradient here painted the
+    # bed bumps of the racing flats and the rim's artificial 0.13 drop as cloudy
+    # foam blobs over the whole belt.
     s0 = max(MEGAFLOOD_FOAM_SURF_SLOPE, 1e-6)
-    foam_raw = np.clip((np.hypot(gxw, gyw) - s0) / (9.0 * s0), 0.0, 1.0).astype("float32")
-    del gyw, gxw
+    foam_raw = np.clip((slope_ls - s0) / (9.0 * s0), 0.0, 1.0).astype("float32")
+    del slope_ls
     gy, gx = np.gradient(arr_sheet, pixel_m)    # smoothed bed: no per-terrace foam bands
     foam_thin = np.clip((np.hypot(gx, gy) - ZANCLEAN_CASCADE_SLOPE) /
                         max(ZANCLEAN_CASCADE_SLOPE, 1e-6), 0.0, 1.0) \
@@ -1682,6 +1842,13 @@ def compute_megaflood(arr, pixel_m, transform):
         # foam to the positive relief. Uncapped by FOAM_MAX on purpose: a crest IS white.
         if MEGAFLOOD_CREST_FOAM > 0:
             crest = np.clip(relief / max(MEGAFLOOD_ROLLER_AMP_M, 1e-6), 0.0, 1.0)
+            # gate to the CASCADE: the relief map also carries the LAKE SWELL on the
+            # calm/racing water, and ungated crest foam whitened every 9 m swell
+            # crest (9/55 x 0.9 ~ 0.15) into km-scale pale clouds over the whole
+            # belt - the "camouflage" mottle of the facies bakes v1-v3. Only the
+            # chute's rollers break; swell does not.
+            if cascade_gate is not None:
+                crest *= cascade_gate
             foam = np.maximum(foam, (MEGAFLOOD_CREST_FOAM * crest
                                      * (coverage > 0)).astype("float32"))
             del crest
@@ -1701,6 +1868,133 @@ def _save_u16_norm(path, arr_m, zmin, zmax):
     except Exception:
         from PIL import Image
         Image.fromarray(u16.astype(np.int32), mode="I").save(path)
+
+
+def _zoom_to(a, shape):
+    """Bilinear-zoom a coarse field up to `shape` (crop the +2 px guard band)."""
+    from scipy.ndimage import zoom
+    out = zoom(a, ((shape[0] + 2) / a.shape[0], (shape[1] + 2) / a.shape[1]),
+               order=1, prefilter=False)
+    return np.ascontiguousarray(out[:shape[0], :shape[1]])
+
+
+def _bake_facies(rgb, arr, pixel_m):
+    """Bake dry-ground surface facies into the albedo (see TEXTURE_FACIES block).
+
+    Order: sediment provinces (multiplicative) -> slope tone -> D8 gullies ->
+    playas/brine pools. Everything derives from the DEM itself; the flood layers
+    are painted later and always win. Works in float32 and in place on rgb -
+    the regional grid is 90 Mpx, one float64 RGB temporary is 2 GB.
+
+    D8 + depression filling run on a ~50 m coarse grid (the painted gullies are
+    blurred to ~GULLY_BLUR_M anyway, and the full-res argsort alone is 720 MB);
+    only the 0..1 weight fields are zoomed back up.
+    """
+    from scipy import ndimage as ndi
+    rng = np.random.default_rng(20260714)
+    H, W = arr.shape
+
+    # --- broad sediment provinces: two octaves of coarse multiplicative albedo
+    # noise + a slight warm/cool hue drift, so the plain is not one tan sheet
+    if PROVINCE_VAR > 0:
+        mod = _coarse_noise(arr.shape, PROVINCE_SCALE_M, pixel_m, rng)
+        mod *= 0.5 * PROVINCE_VAR
+        n2 = _coarse_noise(arr.shape, PROVINCE_SCALE2_M, pixel_m, rng)
+        mod += (0.5 * PROVINCE_VAR2) * n2
+        del n2
+        np.clip(mod, -0.25, 0.25, out=mod)
+        mod += 1.0
+        rgb *= mod[..., None]
+        del mod
+        hue = _coarse_noise(arr.shape, PROVINCE_SCALE_M * 0.7, pixel_m, rng)
+        rgb[..., 0] *= 1.0 + 0.05 * hue
+        rgb[..., 2] *= 1.0 - 0.04 * hue
+        del hue
+
+    # --- slope tone: steep ground darkens toward bare rock (agrees with the
+    # render's TERRAIN_ROCK material, which keys off the same slopes)
+    if SLOPE_TONE > 0:
+        gy, gx = np.gradient(gaussian_filter(arr, 200.0 / pixel_m), pixel_m)
+        s = np.hypot(gx, gy).astype("float32"); del gx, gy
+        np.clip(s, 0.0, SLOPE_TONE_FULL, out=s)
+        s *= SLOPE_TONE / SLOPE_TONE_FULL
+        rgb *= (1.0 - s)[..., None]
+        del s
+
+    if not _HAVE_SKIMAGE:
+        return rgb                     # gullies + pans need depression filling
+
+    # --- coarse grid for the morphology/flow work
+    step = max(int(round(50.0 / pixel_m)), 1)
+    dem_c = np.ascontiguousarray(arr[::step, ::step]).astype("float32")
+    px_c = pixel_m * step
+    filled_c = _fill_depressions(dem_c)
+
+    # --- dendritic gullies: D8 drainage painted as NEUTRAL dry darkening.
+    # Deliberately tone-on-tone, never blue: nothing may read as water flowing
+    # down the Malta escarpment - only the megaflood corridor flows.
+    if GULLY_TEXTURE and _HAVE_NUMBA:
+        order = np.argsort(filled_c.ravel())[::-1]
+        ri, ci = np.unravel_index(order, filled_c.shape)
+        del order
+        accum = _d8_accum(filled_c, ri.astype(np.int64, copy=False),
+                          ci.astype(np.int64, copy=False))
+        del ri, ci
+        area = accum.astype("float32"); del accum
+        area *= (px_c ** 2) / 1e6                       # upstream area, km2
+        # weight grows with log(drainage): thread at GULLY_MIN_KM2, saturated ~300x
+        wg = np.log(np.maximum(area / GULLY_MIN_KM2, 1e-9)).astype("float32")
+        del area
+        wg *= 1.0 / np.log(300.0)
+        np.clip(wg, 0.0, 1.0, out=wg)
+        wg = gaussian_filter(wg, max(GULLY_BLUR_M / px_c, 0.5))
+        wg = _zoom_to(wg, (H, W))
+        wg *= GULLY_DARKEN
+        rgb *= (1.0 - wg)[..., None]
+        del wg
+
+    # --- playas + brine pools, but ONLY in local pans (total enclosure below
+    # DEPRESSION_MAX_M): the upstream basin is enclosed ~800 m deep by the canyon-
+    # head sill, and painting its rim contours would re-create the rejected
+    # inland-lake look as a teal annulus around the whole basin.
+    if PLAYA_ENABLE or POOL_ENABLE:
+        enc = filled_c - dem_c                          # enclosure depth (m)
+        # candidate pans: enclosed, on exposed seafloor, but ABOVE the palaeo sea
+        # plane (below it the paint is invisible under the sea - or worse, visible
+        # as blobs at the escarpment foot next to the plunge)
+        pan = (enc > 1.2) & (dem_c < FACIES_BELOW_M) \
+            & (dem_c > PALEO_SEA_LEVEL_M + PLAYA_ABOVE_SEA_M)
+        lab, n = ndi.label(pan)
+        if n:
+            idx = np.arange(1, n + 1)
+            mx = ndi.maximum(enc, lab, index=idx)
+            counts = np.bincount(lab.ravel(), minlength=n + 1)[1:]
+            area_km2 = counts * (px_c ** 2) / 1e6
+            keep = np.zeros(n + 1, bool)
+            keep[1:] = (mx <= DEPRESSION_MAX_M) & (area_km2 >= PLAYA_MIN_AREA_KM2)
+            pan &= keep[lab]
+            del idx, mx, counts, area_km2, keep
+        del lab
+        enc = np.where(pan, enc, 0.0).astype("float32")
+        del pan
+        # pan floors are flat: the blur feathers the rim into the surrounding tan
+        enc = gaussian_filter(enc, 300.0 / px_c)
+        enc = _zoom_to(enc, (H, W))
+        if PLAYA_ENABLE:
+            wp = np.clip(enc / 6.0, 0.0, 0.9)          # soft ramp, never pure paint
+            if POOL_ENABLE:            # the pond replaces the playa in the centre
+                wp *= 1.0 - np.clip((enc - POOL_MIN_DEPTH_M) / 5.0, 0.0, 1.0)
+            col = np.array(PLAYA_RGB, "float32").reshape(1, 1, 3)
+            rgb += wp[..., None] * (col - rgb)
+            del wp
+        if POOL_ENABLE:
+            wq = np.clip((enc - POOL_MIN_DEPTH_M) / 5.0, 0.0, 1.0)
+            col = np.array(POOL_RGB, "float32").reshape(1, 1, 3)
+            rgb += wq[..., None] * (col - rgb)
+            del wq
+        del enc
+    del dem_c, filled_c
+    return rgb
 
 
 def write_colormap(path, arr, pixel_m, ve, scheme, coverage=None,
@@ -1726,7 +2020,11 @@ def write_colormap(path, arr, pixel_m, ve, scheme, coverage=None,
         arr, vert_exag=ve, dx=pixel_m, dy=pixel_m)[..., None]   # (H, W, 1)
     if not COLORMAP_HILLSHADE:
         hs = np.ones_like(hs)
-    rgb = tint * (shade_lo + (1.0 - shade_lo) * hs)
+    rgb = (tint * (shade_lo + (1.0 - shade_lo) * hs)).astype("float32")
+    del tint                       # 2.1 GB float64 on the regional grid
+
+    if TEXTURE_FACIES:
+        rgb = _bake_facies(rgb, arr, pixel_m)
 
     # ------------------------------------------------------------------
     # Layer 1: D8 river channels + deep basin
@@ -1834,6 +2132,57 @@ def write_colormap(path, arr, pixel_m, ve, scheme, coverage=None,
         depth_c = gaussian_filter(depth, MEGAFLOOD_COLOR_DEPTH_SMOOTH_M / pixel_m)
         dt = np.sqrt(np.clip(depth_c / max(MEGAFLOOD_DEEP_SCALE_M, 1e-6), 0.0, 1.0))[..., None]
         watercol = base * (1.0 - dt) + deep.reshape(1, 1, 3) * dt
+
+        if BRAID_THREADS:
+            # anastomosing channel threads (see BRAID_THREADS block). The LOOK
+            # comes from LIC noise smeared along the flow (sinuous flow-parallel
+            # lanes, thresholded into distinct threads); the real channels of the
+            # DEM enter as a depth high-pass BIAS that pulls threads onto the
+            # actual anabranches. Gated to FLAT water: the cascade keeps its
+            # whitewater and the escarpment face (surface slope ~0.1) gets none.
+            lic = _flow_streaks(zwater, pixel_m, BRAID_LEN_M, seed=7771,
+                                lane_m=BRAID_LANE_M)
+            t = (1.0 - 2.0 * lic).astype("float32")     # signed, ~+-1
+            del lic
+            t *= BRAID_NOISE_GAIN
+            hp = gaussian_filter(depth, BRAID_SMOOTH_M / pixel_m)
+            hp -= gaussian_filter(depth, BRAID_HP_M / pixel_m)
+            np.clip(hp, -BRAID_DEPTH_FULL_M, BRAID_DEPTH_FULL_M, out=hp)
+            t += (BRAID_HP_GAIN / BRAID_DEPTH_FULL_M) * hp
+            del hp
+            # gate slope from the LARGE-SCALE surface (same 1.5 km lesson as the
+            # cascade gate): at 600 m the racing sheet's bed bumps kept the gate
+            # shut over most of the belt and no threads appeared (bake v2)
+            zs = gaussian_filter(zwater, MEGAFLOOD_CASCADE_GATE_SMOOTH_M / pixel_m)
+            gy, gx = np.gradient(zs, pixel_m); del zs
+            sl = np.hypot(gx, gy).astype("float32"); del gx, gy
+            gate = np.clip((2.0 * BRAID_FLAT_SLOPE - sl) / BRAID_FLAT_SLOPE, 0.0, 1.0)
+            del sl
+            gate *= np.clip((BRAID_MAX_DEPTH_M - depth_c) / (0.5 * BRAID_MAX_DEPTH_M),
+                            0.0, 1.0)
+            # threshold the signed field into separated threads/bars: between
+            # -THRESH and +THRESH the water keeps its base colour, so threads
+            # read as discrete anabranches instead of a continuous wash
+            dk = np.clip((t - BRAID_THRESH) / 0.45, 0.0, 1.0)
+            dk *= gate; dk *= BRAID_DARKEN
+            watercol *= (1.0 - dk)[..., None]; del dk
+            lt = np.clip((-t - BRAID_THRESH) / 0.45, 0.0, 1.0); del t
+            lt *= gate; del gate
+            # bar fade is RELATIVE to the belt's own depth (not an absolute 25 m
+            # cutoff, which never fired on the 70 m racing belt): bars pale off
+            # only where the water gets genuinely deep
+            lt *= BRAID_LIGHTEN * np.clip(1.0 - depth_c / 150.0, 0.0, 1.0)
+            sand = np.array([0.52, 0.47, 0.38], "float32").reshape(1, 1, 3)
+            watercol += lt[..., None] * (sand - watercol)
+            if BRAID_SHEET_FOAM > 0:
+                # bars into the B channel too (see BRAID_SHEET_FOAM): the sheet
+                # itself lightens there, so the braid survives the far field
+                foam_w = np.maximum(
+                    foam_w, (BRAID_SHEET_FOAM
+                             * np.clip(lt / max(BRAID_LIGHTEN, 1e-6), 0.0, 1.0)
+                             ).astype("float32"))
+            del lt
+
         if body_streaks is not None:
             # current lanes: subtle brightness modulation along the flow direction
             g = MEGAFLOOD_BODY_STREAK_GAIN

@@ -41,7 +41,7 @@ from mathutils import Vector
 # CONFIG
 # =====================================================================
 DATA_DIR   = r"output_overviewv2"
-OUTPUT_PNG = r"output_overviewv2\render_waterfall_v5.png"
+OUTPUT_PNG = r"output_overviewv2\render_waterfall_v9.png"
 
 # --- console ---
 QUIET = True                         # clean output: one progress bar + summary. False = verbose debug logs
@@ -132,9 +132,12 @@ TERRAIN_ROUGHNESS  = 0.95           # matte ground
 
 # --- PHOTOREAL detail: break the flat "clay model" look with procedural surface texture ---
 TERRAIN_DETAIL        = True        # procedural sediment colour variation + micro rock bump
-TERRAIN_COLOR_VAR     = 0.22        # +-fraction albedo brightness variation (sediment patches)
+TERRAIN_COLOR_VAR     = 0.26        # +-fraction albedo brightness variation (sediment patches)
+                                    # (0.22 -> 0.26 for the Fig-4 satellite look)
 TERRAIN_COLOR_SCALE   = 11.0        # patch scale (bigger number = smaller patches)
-TERRAIN_BUMP_STRENGTH = 0.32        # micro rock bump (0 = smooth clay); keep subtle
+TERRAIN_BUMP_STRENGTH = 0.42        # micro rock bump (0 = smooth clay); keep subtle
+                                    # (0.32 -> 0.42: the draft still read as clay next to
+                                    # the reference's gritty ground)
 TERRAIN_BUMP_FEATURE_M = 130.0      # GRAIN SIZE IN METRES. Was TERRAIN_BUMP_SCALE = 300, a
                                     # Generated-coordinate frequency - i.e. 1/300 of the object,
                                     # which is 930 m in the 280 km regional scene and 310 m in the
@@ -265,7 +268,27 @@ SEA_PLUME_ROUGH      = 0.55         # the plume is churned + turbid: it kills th
 FLOOD_SHEET_COLOR    = (0.03, 0.12, 0.28)   # turbid flood blue (dark - most colour comes
                                             # from the painted terrain showing through)
 FLOOD_FOAM_COLOR     = (0.90, 0.94, 0.97)   # whitewater tint at the cascade (mask B channel)
-FLOOD_SHEET_ALPHA    = 0.95
+FLOOD_SHEET_ALPHA    = 0.95          # opacity of WHITEWATER (foam B >= ~0.35): the cascade
+                                     # must stay a solid tumbling body
+FLOOD_SHEET_ALPHA_OPEN = 0.50        # opacity of open (foam-free) water (2026-07-14). The
+                                     # braided-channel texture lives in the painted BED, and
+                                     # only untinted ALPHA lets it read: the transmission
+                                     # lobe tints by Base Color, and dark-blue x dark bed =
+                                     # black - raising transmission to 0.65 changed nothing
+                                     # (measured, draft t5). Alpha is a clear window: the
+                                     # belt becomes painted braids + a dark-blue veil.
+FLOOD_SHEET_IOR      = 1.0           # 1.0 = NO Fresnel reflection at all (2026-07-14). The
+                                     # sediment torrent must read DARK like the Madof Fig-4
+                                     # channels, but the overview camera sees the belt at
+                                     # 75-85 deg incidence, and grazing Fresnel goes to ~1
+                                     # for ANY refractive water (measured: IOR 1.12 dimmed
+                                     # the band by only 8%, IOR 1.05 barely more). Roughness
+                                     # cannot fix it either (0.55 = the milky-slab lesson
+                                     # below - it only spreads the same energy). Only a unity
+                                     # IOR kills the mirror: the sheet becomes matte sediment
+                                     # water, the cascade foam stays white as ALBEDO, and the
+                                     # swell geometry still shades diffusely. The SEA keeps
+                                     # WATER_IOR 1.33 and its sun glitter.
 FLOOD_SHEET_ROUGHNESS = 0.18         # 0.18, DOWN from 0.55. The high roughness existed to hide a
                                      # problem that no longer exists: with a geometrically FLAT
                                      # sheet, bump normals could not break the sky reflection, so
@@ -279,11 +302,15 @@ FLOOD_SHEET_ROUGHNESS = 0.18         # 0.18, DOWN from 0.55. The high roughness 
                                      # down to the sea's own value. Result: blue water with a sun
                                      # glitter path. Foam still drives roughness up to 0.9 at the
                                      # cascade via the mask's B channel, so whitewater stays matte.
-FLOOD_SHEET_TRANSMISSION = 0.30      # light passes through to the painted flooded ground;
+FLOOD_SHEET_TRANSMISSION = 0.38      # light passes through to the painted flooded ground;
                                      # lower = the sheet's own dark blue asserts more (the
                                      # regional flood was washing out pale over light paint).
                                      # 0.30 (was 0.45): shallow bay water stays solid blue
-                                     # instead of letting the tan bed mottle through
+                                     # instead of letting the tan bed mottle through.
+                                     # 0.38 (2026-07-14): the merge now bakes BRAIDED channel
+                                     # threads into the corridor paint (BRAID_THREADS) and
+                                     # they must read through the sheet; the old mottle risk
+                                     # is gone because the bed paint itself is depth-smoothed.
 FLOOD_WAVE_STRENGTH  = 0.09          # ripple bump on the flood sheet (a torrent, not glass);
                                      # raised from 0.035 -> the approach was reading as a
                                      # glassy mirror; some break-up makes it read as moving
@@ -306,7 +333,12 @@ FLOOD_CORRIDOR_PNG   = None          # None = read 'flood_corridor_png' from met
 # geometry that catches the sun and casts into its own troughs.
 # Needs MEGAFLOOD_CASCADE_RELIEF=True in merge_paleo_dem.py.
 CASCADE_RELIEF       = True
-CASCADE_RELIEF_SCALE = 1.0           # multiplier on the baked amplitude - the whole point
+CASCADE_RELIEF_SCALE = 1.45          # multiplier on the baked amplitude - the whole point
+                                     # (1.0 -> 1.2 2026-07-14: "mehr Wasser im Wasserfall" -
+                                     # taller crests catch more sun at overview distance;
+                                     # 1.2 -> 1.45 2026-07-16: the deeper canyon sheet made
+                                     # the chute read milky-flat - deeper troughs self-shadow
+                                     # and give the whitewater plasticity)
                                      # of exporting the relief as its own map is that this
                                      # can be retuned WITHOUT re-running the ~10 min merge.
                                      # >1 = wilder whitewater; 0 = flat sheet (old look).
@@ -317,7 +349,7 @@ CASCADE_RELIEF_SCALE = 1.0           # multiplier on the baked amplitude - the w
 # and fades out with height above the LOCAL water surface. Needs MEGAFLOOD_MIST_MASK=True.
 # (A bounded OBJECT volume is safe; a world Volume Scatter is what turns this scene black.)
 PLUNGE_MIST      = True
-MIST_DENSITY     = 1.0               # volume density multiplier. The single knob for "how
+MIST_DENSITY     = 1.3               # volume density multiplier. The single knob for "how
                                      # much spray", and it is retunable WITHOUT re-running
                                      # the merge. 2.2 (first try) buried the whole canyon in
                                      # a fog bank; 0.25 was a thin haze. 1.0 = a spray veil
@@ -1130,7 +1162,7 @@ def _flood_sheet_material(obj, corr_path, sea_z_km=None, merge_km=0.0):
     except (KeyError, TypeError):
         pass
     _set_input(bsdf, ["Transmission Weight", "Transmission"], FLOOD_SHEET_TRANSMISSION)
-    _set_input(bsdf, ["IOR"], WATER_IOR)
+    _set_input(bsdf, ["IOR"], FLOOD_SHEET_IOR)   # NOT WATER_IOR - see FLOOD_SHEET_IOR
 
     # ripple bump: the megaflood is a torrent, not a mirror - breaks up the flat
     # sky reflection that made the sheet render as a featureless pale wedge.
@@ -1215,6 +1247,23 @@ def _flood_sheet_material(obj, corr_path, sea_z_km=None, merge_km=0.0):
 
     m2 = nt.nodes.new("ShaderNodeMath"); m2.operation = "MULTIPLY"
     m2.inputs[1].default_value = float(FLOOD_SHEET_ALPHA)
+    try:
+        # foam-driven opacity (see FLOOD_SHEET_ALPHA_OPEN): whitewater stays a
+        # solid body, open water thins so the painted bed's braided channels
+        # read through an UNTINTED window (the transmission lobe cannot do this)
+        arange = nt.nodes.new("ShaderNodeMapRange")
+        arange.inputs["From Min"].default_value = 0.0
+        arange.inputs["From Max"].default_value = 0.35
+        arange.inputs["To Min"].default_value = float(FLOOD_SHEET_ALPHA_OPEN)
+        arange.inputs["To Max"].default_value = float(FLOOD_SHEET_ALPHA)
+        try:
+            arange.clamp = True
+        except AttributeError:
+            pass
+        nt.links.new(sep.outputs["Blue"], arange.inputs["Value"])
+        nt.links.new(arange.outputs["Result"], m2.inputs[1])
+    except (KeyError, TypeError, NameError):
+        pass                            # no corridor image: constant alpha
     nt.links.new(alpha_out, m2.inputs[0])
     _set_input(bsdf, ["Alpha"], 1.0)
     nt.links.new(m2.outputs["Value"], bsdf.inputs["Alpha"])
