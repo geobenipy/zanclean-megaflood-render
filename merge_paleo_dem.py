@@ -609,8 +609,11 @@ MEGAFLOOD_RELIEF_DEPTH_FRAC = 0.60  # a trough may cut at most this fraction of 
 # two water bodies, two materials. This is the same lesson the sea already learned (see
 # SEA_WAVE_GEO in render_waterfall.py): at this scale you need REAL displacement.
 # Rides on the existing relief map, so the depth clip below protects the waterline for free.
-MEGAFLOOD_LAKE_SWELL_M     = 9.0   # swell amplitude (m) on ponded/calm flood water. 0 = flat
+MEGAFLOOD_LAKE_SWELL_M     = 26.0  # swell amplitude (m) on ponded/calm flood water. 0 = flat
                                    # (the milky slab). VE-scaled in Blender like everything else.
+                                   # 9 -> 26 (2026-07-19): the SEA reads as living water at 30 m
+                                   # swell; at 9 m the flood belt next to it stayed a flat blue
+                                   # ribbon at the 448 km overview distance. Same lesson, same cure.
 MEGAFLOOD_LAKE_SWELL_KM    = 2.5   # swell wavelength (km): broad ocean rollers, not chop
 MEGAFLOOD_LAKE_SWELL_DEPTH_M = 60.0  # fade the swell out in water shallower than this. Physically
                                    # right (waves shoal and die) and it keeps the swell from

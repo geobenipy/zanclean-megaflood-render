@@ -41,15 +41,18 @@ from mathutils import Vector
 # CONFIG
 # =====================================================================
 DATA_DIR   = r"output_overview"
-OUTPUT_PNG = r"output_overview\render_waterfall_v10.png"
+OUTPUT_PNG = r"output_overview\render_waterfall_v11.png"
 
 # --- console ---
 QUIET = True                         # clean output: one progress bar + summary. False = verbose debug logs
 
 # --- terrain ---
-SUBDIVISIONS = 2400                  # grid resolution (cuts per side). 600-1000 for the
-                                     # regional view; 1600 for the hero crop (70 km / 1600
-                                     # = 44 m/quad, matches the 25 m heightmap better)
+SUBDIVISIONS = 3200                  # grid resolution (cuts per side). 600-1000 for drafts;
+                                     # 2400 -> 3200 for the overview final (2026-07-19): at
+                                     # 2400 the 117 m quads + smooth shading rounded the
+                                     # 950 m cascade rollers into puffy pillows; 87 m quads
+                                     # render them as crisp breaking crests. Build+render
+                                     # cost ~+20 %, worth it for the hero of the figure.
 VE           = 3                     # regional overview
 # VE         = None                  # None = ve_hint from metadata (hero merge writes 5)
 
@@ -232,7 +235,8 @@ CLOUD_EDGE_SOFT  = 0.14             # gate ramp half-width: bigger = softer clou
 # no shadow survived anywhere. Protect only the cascade/bay and two spots of the belt.
 CLOUD_CLEAR_KM   = [(13.0, -6.0, 26.0),   # (x, y, radius) world km: canyon head + bay + cascade
                     (-24.0, -15.0, 18.0), # lower belt reach
-                    (-58.0, -13.0, 18.0)] # mid belt reach
+                    (-58.0, -13.0, 18.0), # mid belt reach
+                    (-95.0, -12.0, 20.0)] # west belt reach (v10 had cloud shadow ON the torrent)
 CLOUD_CLEAR_FEATHER_KM = 14.0       # soft rim of the clear zones
 
 # --- realistic water (used when PHOTOREAL) ---
@@ -383,7 +387,11 @@ CASCADE_RELIEF_SCALE = 1.4          # multiplier on the baked amplitude - the wh
 # and fades out with height above the LOCAL water surface. Needs MEGAFLOOD_MIST_MASK=True.
 # (A bounded OBJECT volume is safe; a world Volume Scatter is what turns this scene black.)
 PLUNGE_MIST      = True
-MIST_DENSITY     = 1.4               # volume density multiplier. The single knob for "how
+MIST_DENSITY     = 0.9               # volume density multiplier. 1.4 -> 0.9 (2026-07-19): at
+                                     # 1.4 the veil lay as uniform milk over the whole cascade
+                                     # and hid the roller geometry the relief map exists to
+                                     # show. 0.9 keeps the plunge spray but lets crests read.
+                                     # The single knob for "how
                                      # much spray", and it is retunable WITHOUT re-running
                                      # the merge. 2.2 (first try) buried the whole canyon in
                                      # a fog bank; 0.25 was a thin haze. 1.0 = a spray veil
