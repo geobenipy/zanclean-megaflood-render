@@ -103,10 +103,15 @@ SUBSIDENCE_ELEV_TOP   = -1000.0      # above this elevation: no correction
 SUBSIDENCE_ELEV_FULL  = -2300.0      # below this elevation: full correction (smooth ramp)
 
 # ---- PALAEO SEA LEVEL (metadata for the render water plane) ----
-PALEO_SEA_LEVEL_M = -2000.0          # desiccated lowstand relative to present sea level
+PALEO_SEA_LEVEL_M = -2200.0          # desiccated lowstand relative to present sea level.
+                                     # -2000 -> -2200 (2026-07-16): the manuscript's preferred
+                                     # local drawdown is ~2.2 km (window 2.0-2.4); at -2200 the
+                                     # rendered rim-to-water drop (~1.8-1.9 km from the -370 m
+                                     # rim) sits mid-window of the paper's 1.7-2.0 km palaeo-
+                                     # waterfall height instead of at its low edge.
 
 # ---- OUTPUT ----
-OUT_DIR           = "output_overviewv2"       # REGIONAL / panel a. v13-v14 = open envelope -> the flood's true
+OUT_DIR           = "output_overview"       # REGIONAL / panel a. v13-v14 = open envelope -> the flood's true
                                        # EQUILIBRIUM extent (an inland lake). v15 = back to the RIVER, on
                                        # the measured low route (an advancing-torrent snapshot), but it ran
                                        # out on the southern shelf and lapped the Malta escarpment rim.
@@ -341,7 +346,9 @@ MEGAFLOOD_PATH = [
     (511000, 4066800),  # 12 turns NORTH, WEST of the Malta escarpment crest
     (513000, 4078000),  # 13 still west of the crest - the canyon is approached from the NW
     (521000, 4074500),  # 14 canyon head / convergence, turning E into the canyon
-    (532600, 4074000),  # 15 escarpment lip (the waterfall)
+    (532600, 4075000),  # 15 escarpment lip (the waterfall). y 4074000 -> 4075000
+                        #    (2026-07-16): centres the lip disc in the amphitheatre
+                        #    bowl (arc spans y ~4066-4084) for the wide falling front
     (538200, 4076100),  # 16 plunge down the canyon axis (ENE, ~-2470 m)
     (545000, 4078000),  # 17 plume into the deep Ionian (~-2730 m)
     (552000, 4080000),  # 18 plume runs out into the basin
@@ -374,19 +381,25 @@ MEGAFLOOD_PATH = [
 # (see MEGAFLOOD_PATH), so the same half-widths would have inflated the ponded reach back into
 # the reservoir. A narrower corridor spends that head on DEPTH instead of AREA - which is what a
 # torrent in a channel does - and it keeps the flood reading as a river.
-MEGAFLOOD_HALFWIDTH_KM = [16, 16, 15, 14, 11, 10, 9, 9, 9, 8, 7, 6, 5, 4.5, 6, 7, 6, 8, 12]
-#                          0   1   2   3   4   5  6  7  8  9 10 11 12  13   14 15 16 17  18
+MEGAFLOOD_HALFWIDTH_KM = [16, 16, 15, 14, 11, 10, 9, 9, 9, 8, 7, 6, 5, 6.5, 10, 11, 10, 8, 12]
+#                          0   1   2   3   4   5  6  7  8  9 10 11 12  13   14  15  16 17  18
 #
-# 12-13 (4.5-5 km) IS THE KNOB THAT KEEPS THE ESCARPMENT DRY. That leg runs north at x ~ 511000
+# 12-13 (5-6.5 km) IS THE KNOB THAT KEEPS THE ESCARPMENT DRY. That leg runs north at x ~ 511000
 # and the Malta escarpment crest is at x ~ 514000-516000, so a half-width above ~5 km puts the
 # corridor rim on the cliff - and on a cliff the terrain cannot stop water, only the envelope
 # can (see MEGAFLOOD_PATH). Measured: the escarpment face south of the canyon mouth is 381 km2;
 # the old envelope wetted 92 km2 of it as a second cascade, this one wets 32 km2 - all of it the
 # southern shoulder of the plunge apron itself, none of it the rim the flood used to spill over.
 #
-# LIP + PLUNGE (now 15-17) STAY PULLED BACK HARD (once 23/25/23, then 9/8/10): a wide falling
-# front drapes the cascade sideways along the whole escarpment instead of down the canyon. More
-# water in the canyon comes from FILL_DEPTH (a THICKER sheet over the lip), not a wider front.
+# HEAD/LIP/PLUNGE (14-16) OPENED 6/7/6 -> 10/11/10 (2026-07-16, "amphitheatre front"): the
+# manuscript's headline is a >20 km wide fossil waterfall filling the whole amphitheatre, so
+# the pinched jet was scientifically wrong for the figure. Probed on the full grid: the wide
+# discs + deep lip fill push the wetted headwall arc to ~17 km N-S chord (~21 km along the
+# curved scarp) and the front is then TERRAIN-capped (raising MEGAFLOOD_FALLS_FEATHER_KM
+# 3.2 -> 6 changes nothing; south shoulder y~4066 and rising north rim y~4084 are the real
+# limits, and beyond the notch the water has already plunged 2 km and cannot wet the NNE
+# escarpment). Guard measurements stayed clean: S-face box 0.0 km2 wet, wp13 5 -> 6.5 did NOT
+# re-wet the crest leg. Wp13 stays the escarpment guard - do not open it further.
 
 # Soft edge (km) feathered onto the corridor rim so it reads as a torrent, not a
 # canal. Generous: within the feather the SHORELINE comes from the terrain (via the
@@ -641,9 +654,16 @@ MEGAFLOOD_CONFINE_TO_TERRAIN = True   # False = old behaviour (overtop everythin
 # 70 was the uniform value: the canyon film was so thin the roller troughs hit the
 # depth clip (0.6 x 70 = 42 m < the 55 m rollers -> flattened lumps) and tan bed
 # showed through mid-cascade.
-MEGAFLOOD_FILL_DEPTH_M = [70]*14 + [110, 160, 175, 165, 145]
-#  wp:                    0..13     14   15   16   17   18
-#                         lake/belt head lip  plunge -> plume
+MEGAFLOOD_FILL_DEPTH_M = [70]*13 + [90, 250, 300, 280, 230, 180]
+#  wp:                    0..12     13  14   15   16   17   18
+#                         lake/belt  |  head lip  plunge -> plume
+# 110/160/180/170/150 -> 250/300/280/230/180 (2026-07-16, "amphitheatre front"): with the
+# opened head/lip half-widths the wet front saturated at ~12 km because the water level
+# (bed + 110) stayed below the amphitheatre rim away from the notch. 250/300 lifts the
+# surface over the full rim arc -> front 14.2 km N-S / rim crossing 16.7 km (~21 km along
+# the curved scarp, the manuscript's ">20 km"). Physically defensible: ~100 Sv through a
+# ~20 km front at 20-30 m/s IS a 150-300 m sheet. Upstream: +0.5 km2 wet on 3811 km2 (the
+# wp13 70->90 bump), zw at wp 0-12 untouched (suffix-max: head zw -77 m << sill zw +44 m).
 
 # Cross-route notch window (km): the water profile samples the bed as the MINIMUM
 # terrain along the PERPENDICULAR cross-section of this width at each route sample,

@@ -40,8 +40,8 @@ from mathutils import Vector
 # =====================================================================
 # CONFIG
 # =====================================================================
-DATA_DIR   = r"output_overviewv2"
-OUTPUT_PNG = r"output_overviewv2\render_waterfall_v9.png"
+DATA_DIR   = r"output_overview"
+OUTPUT_PNG = r"output_overview\render_waterfall_v10.png"
 
 # --- console ---
 QUIET = True                         # clean output: one progress bar + summary. False = verbose debug logs
@@ -132,10 +132,10 @@ TERRAIN_ROUGHNESS  = 0.95           # matte ground
 
 # --- PHOTOREAL detail: break the flat "clay model" look with procedural surface texture ---
 TERRAIN_DETAIL        = True        # procedural sediment colour variation + micro rock bump
-TERRAIN_COLOR_VAR     = 0.26        # +-fraction albedo brightness variation (sediment patches)
+TERRAIN_COLOR_VAR     = 0.36        # +-fraction albedo brightness variation (sediment patches); was 0.26
                                     # (0.22 -> 0.26 for the Fig-4 satellite look)
-TERRAIN_COLOR_SCALE   = 11.0        # patch scale (bigger number = smaller patches)
-TERRAIN_BUMP_STRENGTH = 0.42        # micro rock bump (0 = smooth clay); keep subtle
+TERRAIN_COLOR_SCALE   = 17.0        # patch scale (bigger number = smaller patches); was 11
+TERRAIN_BUMP_STRENGTH = 0.55        # micro rock bump (0 = smooth clay); keep subtle; was 0.42
                                     # (0.32 -> 0.42: the draft still read as clay next to
                                     # the reference's gritty ground)
 TERRAIN_BUMP_FEATURE_M = 130.0      # GRAIN SIZE IN METRES. Was TERRAIN_BUMP_SCALE = 300, a
@@ -160,7 +160,7 @@ TERRAIN_BUMP_FINE     = 0.45        # weight of a 2nd, 5x finer bump octave. One
 # normal, which is the right choice: it must match what the viewer SEES, not the true gradient.)
 TERRAIN_ROCK          = True
 TERRAIN_ROCK_COLOR    = (0.30, 0.27, 0.24)   # dry exposed rock: dark warm grey
-TERRAIN_ROCK_STRENGTH = 0.50        # max mix toward the rock colour on a vertical face
+TERRAIN_ROCK_STRENGTH = 0.62        # max mix toward the rock colour on a vertical face; was 0.50
 TERRAIN_ROCK_SLOPE_ON = 0.97        # cos(slope) where rock starts (0.97 = ~14 deg)
 TERRAIN_ROCK_SLOPE_FULL = 0.40      # cos(slope) of full rock  (0.40 = ~66 deg)
                                     # WIDE ramp on purpose. A narrow one (0.90 -> 0.55) turns
@@ -187,15 +187,20 @@ TERRAIN_ROCK_ROUGH    = 0.88        # rock roughness, mildly below TERRAIN_ROUGH
 # so the same settings suit both the wide overview and the close hero.
 ATMOSPHERE       = True             # the single biggest realism win for a wide landscape
 HAZE_COLOR       = (0.62, 0.72, 0.86)   # haze tint - match the sky horizon (blue-grey)
-HAZE_STRENGTH    = 0.68             # max haze mix on the farthest terrain (0..1)
+HAZE_STRENGTH    = 0.55             # max haze mix on the farthest terrain (0..1). 0.68 + the
+                                    # old 340 km start washed the WHOLE overview frame 25-40%
+                                    # grey - the facies texture and the dark flood belt only
+                                    # became visible again after this cut (dB draft, 2026-07-16)
 HAZE_EMIT_STRENGTH = 1.1            # haze brightness (match the horizon sky so terrain blends in)
 # ABSOLUTE camera-distance thresholds (km), NOT relative to the shot: the same values keep
 # the close hero (terrain ~35-105 km) fully crisp while the wide overview (terrain ~310-590
 # km) keeps its NEAR ground crisp and only the FAR mountains recede into haze. START must
 # sit near the overview's near edge (~310 km) or the whole overview washes out; the hero
 # is entirely nearer than START so it stays haze-free. Lower START to push haze closer.
-HAZE_START_KM    = 340.0           # REGIONAL overview: no haze nearer than this (near-ground crisp)
-HAZE_END_KM      = 620.0           # full HAZE_STRENGTH at/beyond this distance (far mountains)
+HAZE_START_KM    = 430.0           # REGIONAL overview: no haze nearer than this (near-ground crisp).
+                                   # was 340: the overview terrain STARTS at ~380 km from the
+                                   # camera, so 340 hazed everything including the foreground
+HAZE_END_KM      = 800.0           # full HAZE_STRENGTH at/beyond this distance (far mountains); was 620
 # HERO: the camera sits ~80 km out, so terrain runs from ~40 km (foreground escarpment) to
 # ~140 km (far horizon). Haze from 85 km keeps the falls and the near canyon crisp while the
 # far edge of the DEM - the straight cut border with its lit vertical face - dissolves into
@@ -204,6 +209,31 @@ HAZE_END_KM      = 620.0           # full HAZE_STRENGTH at/beyond this distance 
 # beyond HAZE_END -> full haze mix everywhere, i.e. the flat grey wash (seen in v4).
 #HAZE_START_KM    = 85.0
 #HAZE_END_KM      = 150.0
+
+# --- cloud shadows (PHOTOREAL only) ---
+# A shadow-only plane high above the terrain with a procedural cloud pattern: the
+# clouds themselves are invisible (camera/glossy/diffuse rays skip the plane), only
+# their shadows land on the ground - the classic aerial/satellite-photo cue. Clear
+# zones keep the canyon, the cascade and the flood belt in full sun: mottled light on
+# the DATA would read as artefacts, so the clouds only dapple the supporting cast
+# (Sicily interior, open Ionian). Zone centres are auto-offset toward the sun so the
+# SHADOW (not the cloud) avoids the protected ground.
+CLOUD_SHADOWS    = True
+CLOUD_ALT_KM     = 12.0             # plane altitude in world km (above VE-scaled peaks)
+CLOUD_SCALE_KM   = 38.0             # cloud feature size (km)
+CLOUD_COVER      = 0.45             # noise-gate threshold = 1-COVER. NOTE the noise Fac is
+                                    # roughly Gaussian around 0.5, so 0.34 (thr 0.66) produced
+                                    # near-ZERO actual cover - dC draft was pixel-identical to
+                                    # no clouds. ~0.45 (thr 0.55) = a real scattered field.
+CLOUD_DENSITY    = 0.65             # max shadow opacity: clouds are translucent, not plates
+CLOUD_EDGE_SOFT  = 0.14             # gate ramp half-width: bigger = softer cloud edges
+# Clear zones: keep them TIGHT. The 160 mm overview frame is only ~100 km wide, so the
+# first attempt (r 45 + 22 feather, two zones) blanketed the entire visible frame and
+# no shadow survived anywhere. Protect only the cascade/bay and two spots of the belt.
+CLOUD_CLEAR_KM   = [(13.0, -6.0, 26.0),   # (x, y, radius) world km: canyon head + bay + cascade
+                    (-24.0, -15.0, 18.0), # lower belt reach
+                    (-58.0, -13.0, 18.0)] # mid belt reach
+CLOUD_CLEAR_FEATHER_KM = 14.0       # soft rim of the clear zones
 
 # --- realistic water (used when PHOTOREAL) ---
 WATER_ROUGHNESS     = 0.16          # low enough that the sun stays a sharp highlight the
@@ -216,17 +246,20 @@ WATER_WAVE_SCALE    = 40.0          # medium-scale waves
 # --- sea realism: a large rolling SWELL layered on the chop + broad COLOUR patches, so
 # the Ionian basin reads as a living ocean, not a flat blue slab. All subtle - the sea
 # is the calm receiving basin, not the torrent.
-SEA_SWELL_STRENGTH   = 0.30         # large slow swell bump added under the chop (0 = off)
-SEA_SWELL_SCALE      = 4.0          # swell size (SMALL number = big rolling waves)
+SEA_SWELL_STRENGTH   = 0.45         # large slow swell bump added under the chop (0 = off); was 0.30
+SEA_SWELL_SCALE      = 2.6          # swell size (SMALL number = big rolling waves); was 4.0 -
+                                    # at the 448 km overview distance the 4.0 features were
+                                    # sub-pixel and the sea rendered as a blank gradient (v9)
 SEA_COLOR_LIGHT      = (0.10, 0.33, 0.60)   # lighter blue for the varying patches
 SEA_COLOR_VARIATION  = 0.95         # 0 = uniform WATER_COLOR; ~0.8 = strong patchiness
-SEA_COLOR_SCALE      = 1.1          # colour-patch size (small = broad ocean-scale patches)
+SEA_COLOR_SCALE      = 0.7          # colour-patch size (small = broad ocean-scale patches); was 1.1
 # --- SUN GLITTER: a fine high-frequency normal layer breaks the mirror into countless
 # wavelets so the sun reflection shatters into a glittering path (the single biggest
 # "real ocean" cue). Needs a moderate-low WATER_ROUGHNESS so the sun stays a sharp
 # highlight for the wavelets to chop up (too rough = the glitter smears into a dull sheen).
-SEA_SPARKLE_STRENGTH = 0.18         # fine wavelet normal strength (0 = off). Too high = noisy
-SEA_SPARKLE_SCALE    = 900.0        # wavelet frequency (BIG = fine sparkle; ~700-1200)
+SEA_SPARKLE_STRENGTH = 0.28         # fine wavelet normal strength (0 = off). Too high = noisy; was 0.18
+SEA_SPARKLE_SCALE    = 480.0        # wavelet frequency (BIG = fine sparkle). Was 900: sub-pixel
+                                    # at overview distance, the glitter path read as one white slab
 SEA_SPARKLE_DETAIL   = 3.0          # fractal octaves on the sparkle (crisper glints)
 # --- REAL WAVE GEOMETRY: bump alone can't show waves at this scale (a flat plane reflects
 # the uniform sky no matter the normal). So DISPLACE actual rolling swell into a subdivided
@@ -234,8 +267,9 @@ SEA_SPARKLE_DETAIL   = 3.0          # fractal octaves on the sparkle (crisper gl
 # breaks into a wavy field. Amplitude is VE-scaled and deliberately a bit exaggerated so it
 # reads from altitude (real 1-3 m waves would be sub-pixel).
 SEA_WAVE_GEO            = True       # False = flat plane (old behaviour)
-SEA_WAVE_GEO_STRENGTH_M = 24.0      # swell amplitude in metres (VE-scaled). 0 = flat
-SEA_WAVE_GEO_SCALE      = 3.5       # swell feature size in km (world/GLOBAL coords)
+SEA_WAVE_GEO_STRENGTH_M = 30.0      # swell amplitude in metres (VE-scaled). 0 = flat; was 24
+SEA_WAVE_GEO_SCALE      = 2.4       # swell feature size in km (world/GLOBAL coords); was 3.5
+                                    # (barely 4 px at the overview distance - invisible)
 SEA_WAVE_GEO_SUBDIV     = 500       # plane subdivisions (must resolve the swell wavelength)
 
 # --- 3D megaflood sheet (real water in the corridor; needs flood_corridor.png) ---
@@ -333,7 +367,7 @@ FLOOD_CORRIDOR_PNG   = None          # None = read 'flood_corridor_png' from met
 # geometry that catches the sun and casts into its own troughs.
 # Needs MEGAFLOOD_CASCADE_RELIEF=True in merge_paleo_dem.py.
 CASCADE_RELIEF       = True
-CASCADE_RELIEF_SCALE = 1.45          # multiplier on the baked amplitude - the whole point
+CASCADE_RELIEF_SCALE = 1.4          # multiplier on the baked amplitude - the whole point
                                      # (1.0 -> 1.2 2026-07-14: "mehr Wasser im Wasserfall" -
                                      # taller crests catch more sun at overview distance;
                                      # 1.2 -> 1.45 2026-07-16: the deeper canyon sheet made
@@ -349,7 +383,7 @@ CASCADE_RELIEF_SCALE = 1.45          # multiplier on the baked amplitude - the w
 # and fades out with height above the LOCAL water surface. Needs MEGAFLOOD_MIST_MASK=True.
 # (A bounded OBJECT volume is safe; a world Volume Scatter is what turns this scene black.)
 PLUNGE_MIST      = True
-MIST_DENSITY     = 1.3               # volume density multiplier. The single knob for "how
+MIST_DENSITY     = 1.4               # volume density multiplier. The single knob for "how
                                      # much spray", and it is retunable WITHOUT re-running
                                      # the merge. 2.2 (first try) buried the whole canyon in
                                      # a fog bank; 0.25 was a thin haze. 1.0 = a spray veil
@@ -1478,6 +1512,107 @@ def make_plunge_mist(meta, ve, width_km, height_km):
     return box
 
 
+def make_cloud_shadows(ve, width_km, height_km):
+    """Shadow-only cloud plane: dappled sunlight without visible clouds.
+
+    The plane is skipped by camera/diffuse/glossy/transmission rays and seen ONLY by
+    shadow rays, so the pattern never occludes the terrain or shows up in the water's
+    reflection. Cloud opacity = noise gate x clear-zone masks; the clear zones are
+    shifted toward the sun so the SHADOWS (cast slantwise at SUN_ALTITUDE_DEG) miss
+    the protected ground, not merely the clouds above it.
+    """
+    if not (PHOTOREAL and CLOUD_SHADOWS):
+        return None
+    size = max(width_km, height_km) * (2 * WATER_MARGIN)   # cover the sea plane too
+    bpy.ops.mesh.primitive_plane_add(size=size, location=(0, 0, CLOUD_ALT_KM))
+    plane = bpy.context.active_object
+    plane.name = "cloud_shadows"
+
+    mat = bpy.data.materials.new("cloud_shadow_mat")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    for n in list(nt.nodes):
+        if n.type != "OUTPUT_MATERIAL":
+            nt.nodes.remove(n)
+    out = nt.nodes["Material Output"]
+
+    tc = nt.nodes.new("ShaderNodeTexCoord")     # Object coords = world km (origin at 0,0,alt)
+    noise = nt.nodes.new("ShaderNodeTexNoise")
+    noise.inputs["Scale"].default_value = 1.0 / CLOUD_SCALE_KM
+    noise.inputs["Detail"].default_value = 6.0
+    try:
+        noise.inputs["Roughness"].default_value = 0.62
+    except KeyError:
+        pass
+    nt.links.new(tc.outputs["Object"], noise.inputs["Vector"])
+
+    # gate the noise so ~CLOUD_COVER of the sky carries cloud, with soft edges
+    gate = nt.nodes.new("ShaderNodeMapRange")
+    thr = 1.0 - CLOUD_COVER
+    gate.inputs["From Min"].default_value = thr - CLOUD_EDGE_SOFT
+    gate.inputs["From Max"].default_value = thr + CLOUD_EDGE_SOFT
+    nt.links.new(noise.outputs["Fac"], gate.inputs["Value"])
+
+    # clear zones: fac *= ramp(distance from shifted centre), one per protected spot
+    fac_out = gate.outputs["Result"]
+    dxy = CLOUD_ALT_KM / max(math.tan(math.radians(SUN_ALTITUDE_DEG)), 1e-3)
+    off = (dxy * math.sin(math.radians(SUN_AZIMUTH_DEG)),
+           dxy * math.cos(math.radians(SUN_AZIMUTH_DEG)))
+    for cx, cy, rad in CLOUD_CLEAR_KM:
+        sub = nt.nodes.new("ShaderNodeVectorMath")
+        sub.operation = "SUBTRACT"
+        sub.inputs[1].default_value = (cx + off[0], cy + off[1], CLOUD_ALT_KM)
+        nt.links.new(tc.outputs["Object"], sub.inputs[0])
+        # measure distance in XY only (kill Z before LENGTH)
+        flat = nt.nodes.new("ShaderNodeVectorMath")
+        flat.operation = "MULTIPLY"
+        flat.inputs[1].default_value = (1.0, 1.0, 0.0)
+        nt.links.new(sub.outputs["Vector"], flat.inputs[0])
+        dist = nt.nodes.new("ShaderNodeVectorMath")
+        dist.operation = "LENGTH"
+        nt.links.new(flat.outputs["Vector"], dist.inputs[0])
+        ramp = nt.nodes.new("ShaderNodeMapRange")   # 0 inside radius -> 1 outside rim
+        ramp.inputs["From Min"].default_value = rad
+        ramp.inputs["From Max"].default_value = rad + CLOUD_CLEAR_FEATHER_KM
+        nt.links.new(dist.outputs["Value"], ramp.inputs["Value"])
+        mul = nt.nodes.new("ShaderNodeMath")
+        mul.operation = "MULTIPLY"
+        nt.links.new(fac_out, mul.inputs[0])
+        nt.links.new(ramp.outputs["Result"], mul.inputs[1])
+        fac_out = mul.outputs["Value"]
+
+    dens = nt.nodes.new("ShaderNodeMath")
+    dens.operation = "MULTIPLY"
+    dens.inputs[1].default_value = CLOUD_DENSITY
+    nt.links.new(fac_out, dens.inputs[0])
+
+    # opaque-to-shadow where cloudy, transparent elsewhere
+    transp = nt.nodes.new("ShaderNodeBsdfTransparent")
+    solid = nt.nodes.new("ShaderNodeBsdfDiffuse")
+    solid.inputs["Color"].default_value = (0, 0, 0, 1)
+    mix = nt.nodes.new("ShaderNodeMixShader")
+    nt.links.new(dens.outputs["Value"], mix.inputs["Fac"])
+    nt.links.new(transp.outputs["BSDF"], mix.inputs[1])
+    nt.links.new(solid.outputs["BSDF"], mix.inputs[2])
+    nt.links.new(mix.outputs["Shader"], out.inputs["Surface"])
+    plane.data.materials.append(mat)
+
+    # shadow rays only: invisible to camera, reflections and bounce light
+    for attr in ("visible_camera", "visible_diffuse", "visible_glossy",
+                 "visible_transmission", "visible_volume_scatter"):
+        try:
+            setattr(plane, attr, False)
+        except AttributeError:
+            pass
+    try:
+        plane.visible_shadow = True
+    except AttributeError:
+        pass
+    log("cloud shadows: cover %.0f%%, %d clear zones, alt %.0f km"
+        % (CLOUD_COVER * 100, len(CLOUD_CLEAR_KM), CLOUD_ALT_KM))
+    return plane
+
+
 def make_sun():
     bpy.ops.object.light_add(type="SUN", location=(0, 0, 50))
     sun = bpy.context.active_object
@@ -1708,6 +1843,7 @@ def main():
     flood_sheet = make_flood_sheet(meta, ve, wkm, hkm); bar.step("flood")
     make_plunge_mist(meta, ve, wkm, hkm);           bar.step("mist")
     make_sun();                                     bar.step("sun")
+    make_cloud_shadows(ve, wkm, hkm)
     make_world();                                   bar.step("world")
     cam, target = make_camera(meta, ve, wkm, hkm);  bar.step("camera")
     setup_render();                                 bar.step("ready")
