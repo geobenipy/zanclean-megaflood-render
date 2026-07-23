@@ -63,12 +63,8 @@ TARGET_RES = 25
 CROP_BBOX  = (380000, 3980000, 660000, 4180000)   # (xmin,ymin,xmax,ymax) target-CRS metres
 
 # CANYON HERO shot: box around the waterfall (lip at ~532600/4074000), finer grid so the
-# 2.2 km drop carries the frame. Pair with VE 5 in the render.
-# WIDENED from the old 70x60 km box (495000,4040000,565000,4100000): the camera looks WSW
-# from 80 km with a 62 mm lens, so it saw straight over the old crop border - the DEM ended
-# mid-frame as a straight cliff with a lit vertical cut face on the far right. 92x68 km puts
-# that border out of shot (and the hero haze below softens whatever is left). Res 15 instead
-# of 12.5 keeps the pixel count (and the ~5 min merge) at the old level despite the bigger box.
+# 2.2 km drop carries the frame. Pair with VE 5 in the render. Box sized wide enough that
+# the oblique camera doesn't see the crop border.
 #TARGET_RES = 15.0
 #CROP_BBOX  = (478000, 4036000, 570000, 4104000)   # (xmin,ymin,xmax,ymax) target-CRS metres
 
@@ -103,30 +99,14 @@ SUBSIDENCE_ELEV_TOP   = -1000.0      # above this elevation: no correction
 SUBSIDENCE_ELEV_FULL  = -2300.0      # below this elevation: full correction (smooth ramp)
 
 # ---- PALAEO SEA LEVEL (metadata for the render water plane) ----
-PALEO_SEA_LEVEL_M = -2200.0          # desiccated lowstand relative to present sea level.
-                                     # -2000 -> -2200 (2026-07-16): the manuscript's preferred
-                                     # local drawdown is ~2.2 km (window 2.0-2.4); at -2200 the
-                                     # rendered rim-to-water drop (~1.8-1.9 km from the -370 m
-                                     # rim) sits mid-window of the paper's 1.7-2.0 km palaeo-
-                                     # waterfall height instead of at its low edge.
+PALEO_SEA_LEVEL_M = -2200.0          # desiccated lowstand relative to present sea level -
+                                     # matches the manuscript's ~2.2 km local drawdown
 
 # ---- OUTPUT ----
-OUT_DIR           = "output_overview"       # REGIONAL / panel a. v13-v14 = open envelope -> the flood's true
-                                       # EQUILIBRIUM extent (an inland lake). v15 = back to the RIVER, on
-                                       # the measured low route (an advancing-torrent snapshot), but it ran
-                                       # out on the southern shelf and lapped the Malta escarpment rim.
-                                       # v16 = the river re-measured hugging SICILY + corridor trimmed, so
-                                       # the escarpment south of the canyon stays dry. v17 = the signed-depth
-                                       # extent fix: no more water film painted up the dry banks.
-#OUT_DIR          = "output_hero_v20"  # canyon hero / panel b - MUST be re-merged whenever the route or
-                                       # the envelope changes, or the two panels show different floods.
-#OUT_DIR          = "output_hero_v18"  # v11 = first cascade relief; v12 = gate
-                                       # moved pre-edge-drop; v13 = gate slope raised; v14 = gate keyed
-                                       # to the LARGE-SCALE fall (the fix that stopped the relief
-                                       # rippling the flat approach bay); v15 = whitewater on the crests;
-                                       # v16 = spray plume mask; v17 = de-periodised rollers;
-                                       # v18 = same open envelope + lake swell as the regional panel,
-                                       # so both panels of the figure now show ONE flood
+OUT_DIR           = "output_overview"       # REGIONAL / panel a
+#OUT_DIR          = "output_hero_v20"  # canyon hero / panel b - MUST be re-merged whenever the
+                                       # route or the envelope changes, or the two panels show
+                                       # different floods
 OUT_GEOTIFF       = "merged_paleo_dem.tif"
 OUT_HEIGHTMAP_PNG = "heightmap_16bit.png"
 OUT_META_JSON     = "heightmap_meta.json"
@@ -202,22 +182,14 @@ PROVINCE_SCALE2_M = 9000.0
 BRAID_THREADS      = True
 BRAID_SMOOTH_M     = 140.0           # pre-smooth of raw depth (kills 1-px terrace noise)
 BRAID_HP_M         = 700.0           # high-pass scale: threads narrower than this show.
-                                     # WAS 1600: at that scale the high-pass is dominated by
-                                     # the MES contour TERRACES (km-scale depth anomalies) and
-                                     # the belt came out as camouflage BLOBS with no flow
-                                     # direction - the leopard pattern COLOR_DEPTH_SMOOTH
-                                     # exists to kill, re-imported through the back door.
+                                     # Keep well below the MES contour terrace scale (km) or
+                                     # the belt comes out as camouflage blobs, not flow threads.
 BRAID_DEPTH_FULL_M = 22.0            # thread contrast saturates at this depth anomaly (m)
-BRAID_DARKEN       = 0.52            # thread darkening (strong: only ~35 % shows through
-                                     # the 3D sheet - FLOOD_SHEET_TRANSMISSION; 0.42 was
-                                     # invisible on the dark belt)
-BRAID_LIGHTEN      = 0.35            # bar lightening toward a sandy shoal tint (0.20 +
-                                     # the old ABSOLUTE depth<25m gate never fired on the
-                                     # 70 m belt - the gate is RELATIVE now)
+BRAID_DARKEN       = 0.52            # thread darkening (strong: only a fraction shows through
+                                     # the semi-transparent 3D sheet)
+BRAID_LIGHTEN      = 0.35            # bar lightening toward a sandy shoal tint
 BRAID_MAX_DEPTH_M  = 160.0           # fade the braid texture out in deeper water (a deep
-                                     # reach reads as one dark body, not a braid). WAS 90:
-                                     # the racing belt itself is ~FILL_DEPTH (70 m) deep, so
-                                     # 90 halved the threads exactly where they belong.
+                                     # reach should read as one dark body, not a braid)
 BRAID_FLAT_SLOPE   = 0.012           # water-surface slope below which braids show fully;
                                      # off by ~2x this (keeps the cascade streaked white,
                                      # not braided)
@@ -267,14 +239,11 @@ ZANCLEAN_FLOOD          = False     # OFF: the legacy D8-channel "waterfall zone
 ZANCLEAN_ENTRY_ELEV_M   = -500.0    # cells below this elevation in the eastern basin portion seed the corridor
 ZANCLEAN_ENTRY_FRACTION = 0.45      # fraction of grid width covered by the entry zone (measured from east/right edge)
 ZANCLEAN_CHANNEL_KM     = 12.0      # full width (km) of the flood corridor within the MES
-ZANCLEAN_DEEP_NAVY      = (0.03, 0.07, 0.20)   # deep basin (was 0.04/0.10/0.30 - darkened
-                                               # 2026-07-14 with the other flood colours:
-                                               # the glossy bright flood read as gel, the
-                                               # reference's torrent is dark sediment water)
-ZANCLEAN_ATLANTIC_RGB   = (0.06, 0.18, 0.38)   # clean water at entry (was 0.09/0.26/0.54)
-ZANCLEAN_TURBID_RGB     = (0.12, 0.16, 0.21)   # muddy blue-grey (was 0.17/0.23/0.30): sediment
-                                               # TINT, but the flood must still read as WATER
-                                               # (full brown made it look like a salt flat)
+ZANCLEAN_DEEP_NAVY      = (0.03, 0.07, 0.20)   # deep basin - dark, so the flood reads as
+                                               # sediment-laden water rather than glossy gel
+ZANCLEAN_ATLANTIC_RGB   = (0.06, 0.18, 0.38)   # clean water at entry
+ZANCLEAN_TURBID_RGB     = (0.12, 0.16, 0.21)   # muddy blue-grey sediment tint (must still
+                                               # read as water, not a salt flat)
 ZANCLEAN_FOAM_RGB       = (0.72, 0.85, 0.92)   # white-blue foam/spray at the cascade lip
 ZANCLEAN_CASCADE_SLOPE  = 0.80      # gradient threshold (m/m) for the cascade/foam zone
 
@@ -297,39 +266,9 @@ MEGAFLOOD_CORRIDOR = True
 MEGAFLOOD_PATH_UNITS = "crs"    # CRS metres: crop-independent, same route for the
                                 # regional view AND the canyon hero crop
 
-# Waypoints ALONG the flood, ordered SOURCE (Gibraltar/inlet) -> PLUNGE. The default
-# traces the trunk visible in your render: enters lower-left, runs NE across the dry
-# basin, converges at the canyon head, plunges E into the Ionian. RETRACE THESE to
-# match the blue route you drew - this is just a starting point.
-# Route traced along the ACTUAL deep corridor (probed from the merged DEM): enters
-# from the NW (Gibraltar direction along SE Sicily), runs down the -700..-890 m
-# trough, crosses the shallow flats hugging their northern side, swings into the
-# canyon head and plunges SE into the Ionian. (x_east, y_north) EPSG:32633 metres.
-# RE-ROUTED TWICE, both times MEASURED (never eyeballed).
-#
-# (1) The original middle waypoints crossed the flats at (475200,4063000) / (497600,4066000) /
-#     (514400,4070000), where the bed CLIMBS to +46 m. That was a self-inflicted sill: the water
-#     had to pond ~100 m deep just to get over ground it never needed to cross - THAT is where
-#     the inland-lake look came from. A minimax search (Dijkstra where the path cost is the
-#     HIGHEST cell crossed) found a -61 m corridor out on the southern shelf. Sill -> -48 m.
-#
-# (2) That southern-shelf line ran far from Sicily, out in the middle of the frame. The route is
-#     now the least-rise channel CONSTRAINED to y >= 4052000, i.e. forced to hug the Sicilian
-#     margin - the same anastomosing system that is visible in the DEM and that the flood would
-#     have followed off the Sicilian slope. Waypoints 4-13 ARE that measured channel (Dijkstra
-#     path, resampled + smoothed), not a hand-drawn curve, which is why it meanders.
-#
-# Hugging Sicily costs head: the constrained sill is +6 m against -48 m out on the shelf, so the
-# ponded surface upstream stands ~54 m higher. That is the honest price of the river's position
-# and it is paid on purpose (see MEGAFLOOD_HALFWIDTH_KM: the corridor is narrowed to match).
-#
-# Waypoints 12-13 climb the trough at x ~ 511000 and turn north WEST OF THE MALTA ESCARPMENT
-# CREST (which runs at x ~ 514000-516000 between y = 4050000 and 4071000). The old route
-# instead ran NNE along that crest at (516500,4060000) with a 13 km half-width, so the corridor
-# lapped over the rim and the flood poured down the escarpment face as a SECOND cascade,
-# 15 km south of the Noto Canyon. On a cliff there is no topographic barrier to stop it -
-# the ground only falls - so ONLY the envelope can, and the envelope was on the wrong side.
-# Approaching the canyon head from the NW (13 -> 14) removes the artefact structurally.
+# Waypoints ALONG the flood, ordered SOURCE (Gibraltar/inlet) -> PLUNGE, (x_east, y_north)
+# EPSG:32633 metres. Route found by a minimax/least-rise search (Dijkstra, cost = highest
+# cell crossed), constrained to hug the Sicilian margin. RETRACE via colormap.png if the DEM changes.
 MEGAFLOOD_PATH = [
     (366000, 4096000),  # 0  NW inlet OUTSIDE the grid (start-cap artefacts stay off-map)
     (391200, 4090000),  # 1  enters the frame (~-450 m)
@@ -346,60 +285,27 @@ MEGAFLOOD_PATH = [
     (511000, 4066800),  # 12 turns NORTH, WEST of the Malta escarpment crest
     (513000, 4078000),  # 13 still west of the crest - the canyon is approached from the NW
     (521000, 4074500),  # 14 canyon head / convergence, turning E into the canyon
-    (532600, 4075000),  # 15 escarpment lip (the waterfall). y 4074000 -> 4075000
-                        #    (2026-07-16): centres the lip disc in the amphitheatre
+    (532600, 4075000),  # 15 escarpment lip (the waterfall), centred in the amphitheatre
                         #    bowl (arc spans y ~4066-4084) for the wide falling front
     (538200, 4076100),  # 16 plunge down the canyon axis (ENE, ~-2470 m)
     (545000, 4078000),  # 17 plume into the deep Ionian (~-2730 m)
     (552000, 4080000),  # 18 plume runs out into the basin
 ]
 
-# Corridor HALF-width in km at each waypoint (list same length as MEGAFLOOD_PATH, OR
-# a single number for constant width). The flood is clipped to this envelope.
-#   waypoints 0-4 = far upstream before/along Sicily (NW inlet -> deep trough);
-#   waypoints 5-6 = the flats/bay; 7-9 = approach -> canyon head -> lip (the inflow into
-#   the canyon); 10-12 = the plunge + plume down the canyon.
-#
-# THE CORRIDOR IS A FLOW BOUNDARY, NOT A WATER LEVEL - and that is a deliberate, stated
-# scientific framing. Measured on this DEM: the palaeo-topography here is a broad BASIN, not
-# a valley. At ANY water level the connected flooded area is an inland sea (38 % of the frame
-# even at -31 m). So the terrain CANNOT confine a river, and a corridor with terrain-cut banks
-# is not achievable at equilibrium - the honest equilibrium picture is a lake.
-#
-# The figure instead shows the flood as a SNAPSHOT OF AN ADVANCING TORRENT that has crossed
-# the dry basin and not yet filled it. On that reading the corridor edge is the flow front,
-# not a shoreline, and the envelope is the right tool. The caption must say so.
-#
-# Half-widths therefore read as the RIVER's width: wide where it drains the deep trough,
-# narrowing as it runs the shelf, pinching hard at the lip.
-#
-# ONE list for BOTH panels: the regional and hero shots are two views of the SAME flood. The
-# old split (tight flats regional / open flats hero) meant the two panels showed two floods.
-#
-# TRIMMED DOWN (was 22/22/25/28/26/20/18/16/15/13/12/9/8/10/14 on the 15-waypoint route). Two
-# reasons, and they are the same reason: the sill is 54 m higher now that the river hugs Sicily
-# (see MEGAFLOOD_PATH), so the same half-widths would have inflated the ponded reach back into
-# the reservoir. A narrower corridor spends that head on DEPTH instead of AREA - which is what a
-# torrent in a channel does - and it keeps the flood reading as a river.
+# Corridor HALF-width in km at each waypoint (list same length as MEGAFLOOD_PATH, OR a single
+# number for constant width). The flood is clipped to this envelope. THE CORRIDOR IS A FLOW
+# BOUNDARY, NOT A WATER LEVEL: the palaeo-topography is a broad basin, so at any water level
+# the connected flooded area is an inland sea - the terrain cannot confine a river at
+# equilibrium. The figure instead shows the flood as a snapshot of an advancing torrent, and
+# the corridor edge is its flow front. Half-widths read as the river's width:
+# wide in the deep trough, narrowing across the shelf, widest again at the amphitheatre
+# head/lip/plunge (14-16) to match the manuscript's >20 km wide fossil waterfall front.
+# ONE list for both panels - the regional and hero shots are two views of the SAME flood.
 MEGAFLOOD_HALFWIDTH_KM = [16, 16, 15, 14, 11, 10, 9, 9, 9, 8, 7, 6, 5, 6.5, 10, 11, 10, 8, 12]
 #                          0   1   2   3   4   5  6  7  8  9 10 11 12  13   14  15  16 17  18
 #
-# 12-13 (5-6.5 km) IS THE KNOB THAT KEEPS THE ESCARPMENT DRY. That leg runs north at x ~ 511000
-# and the Malta escarpment crest is at x ~ 514000-516000, so a half-width above ~5 km puts the
-# corridor rim on the cliff - and on a cliff the terrain cannot stop water, only the envelope
-# can (see MEGAFLOOD_PATH). Measured: the escarpment face south of the canyon mouth is 381 km2;
-# the old envelope wetted 92 km2 of it as a second cascade, this one wets 32 km2 - all of it the
-# southern shoulder of the plunge apron itself, none of it the rim the flood used to spill over.
-#
-# HEAD/LIP/PLUNGE (14-16) OPENED 6/7/6 -> 10/11/10 (2026-07-16, "amphitheatre front"): the
-# manuscript's headline is a >20 km wide fossil waterfall filling the whole amphitheatre, so
-# the pinched jet was scientifically wrong for the figure. Probed on the full grid: the wide
-# discs + deep lip fill push the wetted headwall arc to ~17 km N-S chord (~21 km along the
-# curved scarp) and the front is then TERRAIN-capped (raising MEGAFLOOD_FALLS_FEATHER_KM
-# 3.2 -> 6 changes nothing; south shoulder y~4066 and rising north rim y~4084 are the real
-# limits, and beyond the notch the water has already plunged 2 km and cannot wet the NNE
-# escarpment). Guard measurements stayed clean: S-face box 0.0 km2 wet, wp13 5 -> 6.5 did NOT
-# re-wet the crest leg. Wp13 stays the escarpment guard - do not open it further.
+# 12-13 (5-6.5 km) keeps the Malta escarpment crest (x ~514000-516000) dry: on a cliff the
+# terrain cannot stop water, only the envelope can - do not open this leg further.
 
 # Soft edge (km) feathered onto the corridor rim so it reads as a torrent, not a
 # canal. Generous: within the feather the SHORELINE comes from the terrain (via the
@@ -431,10 +337,6 @@ MEGAFLOOD_EDGE_WIGGLE     = 0.25   # fractional half-width modulation (0 = exact
                                    # envelope IS binding again now that the corridor is back, so
                                    # this is what keeps the flow front from being a drawn ribbon.
 MEGAFLOOD_EDGE_WIGGLE_KM  = 12.0   # wavelength (km) of the meander
-                                    # NOTE: this knob was NOT the cause of the straight shoreline
-                                    # edge (measured: the long straight segments sit at corridor
-                                    # weight w = 1.0, i.e. deep INSIDE the corridor, nowhere near
-                                    # the rim). See MEGAFLOOD_HALFWIDTH_KM for what it really was.
 
 # Whitewater band (km) painted upslope of the basin rim where the flood goes over.
 # Only used by the legacy (non-confined) mode. The confined mode keys foam to the
@@ -444,10 +346,8 @@ MEGAFLOOD_FOAM_BAND_KM = 4.0
 # Confined-mode foam: whitewater where the water surface itself drops steeply (the
 # cascade), ramping to full white at 3x this gradient (m/m). 0.05 = 5% surface drop.
 # Must stay above EDGE_DROP_M / (FEATHER_KM*1000) or the corridor rim foams too.
-MEGAFLOOD_FOAM_SURF_SLOPE = 0.030   # lowered from 0.05: the cascade was reading as blue water
-                                    # with a few pale streaks, not as a falling torrent. Foam now
-                                    # starts on gentler water-surface slopes, so the whole drop
-                                    # into the amphitheatre churns, not just the steepest facets.
+MEGAFLOOD_FOAM_SURF_SLOPE = 0.030   # low enough that the whole drop into the amphitheatre
+                                    # churns, not just the steepest facets
 # ... plus where a THIN racing sheet (depth below this, in m) skims a steep bed
 # (> ZANCLEAN_CASCADE_SLOPE) - catches the lip itself without foaming deep wet slopes.
 MEGAFLOOD_FOAM_THIN_DEPTH_M = 40.0
@@ -455,19 +355,14 @@ MEGAFLOOD_FOAM_THIN_DEPTH_M = 40.0
 # Lateral feather (km) of the CASCADE section only: the falling jet is confined to
 # halfwidth + this, instead of the generous MEGAFLOOD_FEATHER_KM of the lake/flats -
 # otherwise the thin falling film paints a curtain along the whole escarpment face.
-MEGAFLOOD_FALLS_FEATHER_KM = 3.2   # BACK DOWN from 7.0: the wide feather is exactly what let
-                                   # the falling film curtain sideways out of the amphitheatre
-                                   # and into the dry side gully. Tight jet again.
+MEGAFLOOD_FALLS_FEATHER_KM = 3.2   # tight, or the falling film curtains sideways out of the
+                                   # amphitheatre into the dry side gully
 
 # Water-surface slope (m/m) above which the envelope hands over from the generous
-# lake/flats feather to the tight falls feather. This replaces the old pooledness
-# switch: a broad shallow sheet RACING across the flats keeps the full corridor
-# width, only genuinely FALLING water (cascade, escarpment drape) is pinched to
-# the canyon. Full handover at 3x this slope.
-MEGAFLOOD_FALLS_SLOPE = 0.018   # lowered from 0.025: the handover to the TIGHT falls feather
-                                # starts earlier, so water that has begun to drop over the rim
-                                # (including the drape toward the side gully) is pinched to the
-                                # canyon sooner. The flat racing sheet on the flats is unaffected.
+# lake/flats feather to the tight falls feather: a broad shallow sheet RACING across the
+# flats keeps the full corridor width, only genuinely FALLING water (cascade, escarpment
+# drape) is pinched to the canyon. Full handover at 3x this slope.
+MEGAFLOOD_FALLS_SLOPE = 0.018
 
 # Falling-water streaks: modulate the whitewater with noise smeared ALONG the flow
 # direction (line-integral-convolution style). Turns the flat foam sheet into
@@ -486,22 +381,15 @@ MEGAFLOOD_STREAK_LANE_M  = 260.0   # WIDTH (m) of a current lane: the streak noi
 # - churning margins: thin foam fringe along the waterline (the flood front)
 MEGAFLOOD_BODY_STREAK_GAIN = 0.12  # +-12% colour modulation along flow lanes (0 = off):
                                    # subtle directional current sheen on the flood body
-                                   # (0.08 -> 0.12 with the braid work: the belt needs to
-                                   # read as CURRENT, and the darker palette absorbs 8%)
 MEGAFLOOD_BODY_STREAK_LEN_M = 3500.0  # lane length (m); longer than the foam strands
-MEGAFLOOD_RAPIDS_FOAM      = 0.0   # whitecaps on the flood BODY. 0 = off: the broad lanes
-                                   # smeared foam as light-blue BLOBS over the calm shallow
-                                   # bay (a pooled lake behind the sill -> should read glassy
-                                   # like the sea, not speckled). Whitewater drama now lives
-                                   # only at the cascade (foam_surf/foam_thin), where it belongs.
+MEGAFLOOD_RAPIDS_FOAM      = 0.0   # whitecaps on the flood BODY. 0 = off: keeps the pooled
+                                   # lake behind the sill glassy instead of speckled; whitewater
+                                   # drama lives only at the cascade (foam_surf/foam_thin)
 MEGAFLOOD_EDGE_FOAM        = 0.10  # churn-fringe intensity at the waterline (0 = off)
 MEGAFLOOD_EDGE_FOAM_DEPTH  = 12.0  # fringe fades out below this water depth (m)
-MEGAFLOOD_FOAM_MAX         = 0.86  # raised from 0.72 for a whiter, "flutiger" cascade. Cap on
-                                   # visible foam whiteness: the 2 km cascade
-                                   # face is steep everywhere -> foam saturated to a
-                                   # flat white blob. Capping lets the blue water show
-                                   # through, so the plunge reads as blue-white streaked
-                                   # whitewater (with the broad foam strands) not paint.
+MEGAFLOOD_FOAM_MAX         = 0.86  # cap on visible foam whiteness: the cascade face is steep
+                                   # everywhere, so uncapped foam saturates to a flat white
+                                   # blob; capping lets blue water show through the strands
 
 # Plunge mist: foam-rich cells may dip this many metres BELOW the palaeo sea level
 # before the coverage cutoff removes them -> a white spray zone where the cascade
@@ -518,12 +406,10 @@ MEGAFLOOD_PLUNGE_MIST_M  = 250.0
 # km-scale scene black.
 MEGAFLOOD_MIST_MASK     = True     # export flood_mist.png
 MEGAFLOOD_MIST_SPREAD_M = 1200.0   # blur radius (m): how far the spray cloud billows out
-                                   # from the churning water that generates it. 1800 smeared
-                                   # the plume into a blanket that veiled the whole canyon.
-MEGAFLOOD_MIST_CHUTE_GAIN  = 0.35  # weight of the GENERAL churn all down the chute. Keep it
-                                   # low: at 1.0 the cascade generates as much spray at its
-                                   # head as at its foot, and the mask's centre of mass ends
-                                   # up at the canyon head instead of the plunge.
+                                   # from the churning water that generates it
+MEGAFLOOD_MIST_CHUTE_GAIN  = 0.35  # weight of the GENERAL churn all down the chute - low, or
+                                   # the mask's centre of mass sits at the canyon head instead
+                                   # of the plunge
 MEGAFLOOD_MIST_PLUNGE_GAIN = 3.5   # weight of the IMPACT zone. THIS is what makes the plume
                                    # a plume rather than an even haze.
 MEGAFLOOD_MIST_SEA_BAND_M = 700.0  # height above the palaeo sea level over which "impact
@@ -556,45 +442,31 @@ MEGAFLOOD_MIST_HEIGHT_M = 500.0    # how far the plume rises ABOVE the local wat
 MEGAFLOOD_CASCADE_RELIEF   = True   # False = old flat sheet (colour/bump only)
 MEGAFLOOD_CASCADE_GATE_SMOOTH_M = 1500.0  # THE key knob. The gate must key on the LARGE-SCALE
                                     # fall of the water surface, so smooth it this much before
-                                    # taking the gradient. Without it (v11-v13) the gate fired on
-                                    # the racing thin sheet out on the approach flats: there the
-                                    # surface hugs the bed (zw_thin = bed + FILL_DEPTH), so it
-                                    # inherits the bed's +-20 m bumps and the LOCAL slope tops
-                                    # 0.06 on pure noise - stamping regular rollers across a flat
+                                    # taking the gradient - the racing thin sheet on the approach
+                                    # flats hugs the bed and inherits its +-20 m bumps, so an
+                                    # unsmoothed local slope stamps regular rollers across a flat
                                     # bay that should be glassy. At 1.5 km the bumps average out
-                                    # and only real fall survives: the chute drops 1.8 km over
-                                    # 13 km (~0.14), the flats ~0.
+                                    # and only real fall survives (chute ~0.14, flats ~0).
 MEGAFLOOD_CASCADE_SLOPE_ON = 0.035  # large-scale surface slope (m/m) where the relief starts
 MEGAFLOOD_CASCADE_SLOPE_FULL = 0.120  # ...and reaches full amplitude (the plunging chute)
 MEGAFLOOD_ROLLER_LAMBDA_M  = 950.0  # standing-wave wavelength (m). Must stay well above the
-                                    # Blender quad size (scene_width / SUBDIVISIONS ~ 38 m at
-                                    # 92 km / 2400) or the mesh cannot resolve the crests and
-                                    # they alias into noise. 700 on the REGIONAL grid (280 km /
-                                    # 2400 = 117 m quads) was only 6 quads/wave - together with
-                                    # the lambda/1.9 harmonic (4 quads!) the wave train aliased
-                                    # into round "cauliflower" lumps in the canyon (v8).
-MEGAFLOOD_ROLLER_AMP_M     = 55.0   # crest-to-trough/2 of the rollers (m). Sounds huge, and is:
-                                    # the chute is 13 km long and 1.8 km deep, so a 20 m wave is
-                                    # invisible. This is the "reads from orbit" exaggeration.
+                                    # Blender quad size (scene_width / SUBDIVISIONS) or the mesh
+                                    # cannot resolve the crests and they alias into noise
+MEGAFLOOD_ROLLER_AMP_M     = 55.0   # crest-to-trough/2 of the rollers (m). Deliberately huge:
+                                    # the chute is 13 km long and 1.8 km deep, so a 20 m wave
+                                    # would be invisible - this is the "reads from orbit" scale
 MEGAFLOOD_ROLLER_JITTER    = 0.45   # 0 = perfectly regular corduroy (reads as a machined ramp);
-                                    # was 0.60: that much phase noise destroyed the TRANSVERSE
-                                    # coherence of the crests - the waves no longer stood across
-                                    # the current but broke into isolated blobs (part of the v8
-                                    # cauliflower). 0.45 keeps crests readable as wave fronts.
+                                    # keeps crests readable as wave fronts without destroying
+                                    # their transverse coherence
 MEGAFLOOD_ROLLER_HARMONIC  = 0.40   # amplitude of a SECOND, shorter roller train (lambda/1.9)
-                                    # with its own independent jitter field. One sine wave over
-                                    # an EDT-propagated 'along' field reads as nested contour
-                                    # lines on a map; a decorrelated second train destroys that
-                                    # periodicity. 0 = single train (the old look). Was 0.55: at
-                                    # lambda 700 the 368 m harmonic sat below mesh resolution and
-                                    # only added blob noise; 0.40 at lambda 950 (500 m harmonic).
+                                    # with its own independent jitter field - a single sine wave
+                                    # over an EDT-propagated 'along' field reads as nested
+                                    # contour lines on a map; the second train breaks that up.
+                                    # 0 = single train.
 MEGAFLOOD_ROLLER_PATCHINESS = 0.55  # 0 = one even wave amplitude over the whole chute (reads as
                                     # machined). ~0.55 gives zones of stacked standing waves and
                                     # smoother glassy tongues between them, like a real cataract.
-MEGAFLOOD_STRAND_AMP_M     = 40.0   # amplitude of the flow-parallel water ropes (m). Raised from
-                                    # 32 with the thicker canyon sheet (see MEGAFLOOD_FILL_DEPTH_M
-                                    # list): the fall should read DIRECTIONAL, and the deeper film
-                                    # can carry the ropes without trough punch-through.
+MEGAFLOOD_STRAND_AMP_M     = 40.0   # amplitude of the flow-parallel water ropes (m)
 MEGAFLOOD_STRAND_LEN_M     = 2600.0 # strand length (m): long ropes down the fall line
 MEGAFLOOD_STRAND_LANE_M    = 190.0  # strand WIDTH (m). Narrower than the foam lanes (260) so
                                     # the geometry reads as many ropes, not a few fat tubes.
@@ -609,19 +481,14 @@ MEGAFLOOD_RELIEF_DEPTH_FRAC = 0.60  # a trough may cut at most this fraction of 
 # two water bodies, two materials. This is the same lesson the sea already learned (see
 # SEA_WAVE_GEO in render_waterfall.py): at this scale you need REAL displacement.
 # Rides on the existing relief map, so the depth clip below protects the waterline for free.
-MEGAFLOOD_LAKE_SWELL_M     = 26.0  # swell amplitude (m) on ponded/calm flood water. 0 = flat
+MEGAFLOOD_LAKE_SWELL_M     = 9.0   # swell amplitude (m) on ponded/calm flood water. 0 = flat
                                    # (the milky slab). VE-scaled in Blender like everything else.
-                                   # 9 -> 26 (2026-07-19): the SEA reads as living water at 30 m
-                                   # swell; at 9 m the flood belt next to it stayed a flat blue
-                                   # ribbon at the 448 km overview distance. Same lesson, same cure.
 MEGAFLOOD_LAKE_SWELL_KM    = 2.5   # swell wavelength (km): broad ocean rollers, not chop
 MEGAFLOOD_LAKE_SWELL_DEPTH_M = 60.0  # fade the swell out in water shallower than this. Physically
                                    # right (waves shoal and die) and it keeps the swell from
                                    # chewing a ragged waterline into the shallow margins.
 MEGAFLOOD_RELIEF_AMP_M     = 150.0  # normalisation half-range of the exported PNG (m). Must
-                                    # exceed the real max relief or the crests clip flat. Was 120:
-                                    # rollers 55x1.6 patch + strands 40 can now stack to ~128 m
-                                    # (deep canyon sheet no longer clips the troughs first).
+                                    # exceed the real max relief or the crests clip flat.
                                     # NOTE any bake that rewrites flood_relief_16bit.png must also
                                     # update flood_relief_amp_m in heightmap_meta.json (finalize
                                     # does; a write_colormap-only driver must patch the JSON).
@@ -643,30 +510,18 @@ MEGAFLOOD_CONFINE_TO_TERRAIN = True   # False = old behaviour (overtop everythin
 
 # Water depth (m) above the channel floor along the route (auto profile). With
 # MEGAFLOOD_POOLING this is effectively the HEAD above the highest downstream sill:
-# the water level in the corridor = sill elevation + this depth. The route sill sits
-# at ~+45 m, so 60 m -> overspill level ~ +105 m. Downstream of the sill it is the
-# sheet thickness pouring over the escarpment. Raise for a wider/deeper torrent.
+# the water level in the corridor = sill elevation + this depth. Downstream of the sill
+# it is the sheet thickness pouring over the escarpment. Raise for a wider/deeper torrent.
 #
-# MAY BE A LIST (one value per MEGAFLOOD_PATH waypoint, interpolated along the route
-# like MEGAFLOOD_HALFWIDTH_KM) - that is the knob for "more water ONLY in the canyon".
-# Raising the scalar raises the upstream lake too; raising it only where the bed has
-# already plunged below the controlling sill (wp 14+) thickens the cascade sheet and
-# leaves the pooled profile upstream mathematically untouched (the suffix-max never
-# sees these values). MEASURED on the v8 grid (_probe_bed.py): 70 everywhere vs the
-# list below changes zw by 0.0 m at wp 0-13 and by +60..+80 m in the canyon reach.
-# 70 was the uniform value: the canyon film was so thin the roller troughs hit the
-# depth clip (0.6 x 70 = 42 m < the 55 m rollers -> flattened lumps) and tan bed
-# showed through mid-cascade.
+# MAY BE A LIST (one value per MEGAFLOOD_PATH waypoint, interpolated along the route like
+# MEGAFLOOD_HALFWIDTH_KM) - the knob for "more water ONLY in the canyon": raising it only
+# downstream of the controlling sill (wp 14+) thickens the cascade sheet without touching
+# the pooled profile upstream (the suffix-max never sees those values).
 MEGAFLOOD_FILL_DEPTH_M = [70]*13 + [90, 250, 300, 280, 230, 180]
 #  wp:                    0..12     13  14   15   16   17   18
 #                         lake/belt  |  head lip  plunge -> plume
-# 110/160/180/170/150 -> 250/300/280/230/180 (2026-07-16, "amphitheatre front"): with the
-# opened head/lip half-widths the wet front saturated at ~12 km because the water level
-# (bed + 110) stayed below the amphitheatre rim away from the notch. 250/300 lifts the
-# surface over the full rim arc -> front 14.2 km N-S / rim crossing 16.7 km (~21 km along
-# the curved scarp, the manuscript's ">20 km"). Physically defensible: ~100 Sv through a
-# ~20 km front at 20-30 m/s IS a 150-300 m sheet. Upstream: +0.5 km2 wet on 3811 km2 (the
-# wp13 70->90 bump), zw at wp 0-12 untouched (suffix-max: head zw -77 m << sill zw +44 m).
+# 250-300 lifts the water surface over the full amphitheatre rim arc, giving a wetted
+# front consistent with the manuscript's ">20 km" fossil waterfall width.
 
 # Cross-route notch window (km): the water profile samples the bed as the MINIMUM
 # terrain along the PERPENDICULAR cross-section of this width at each route sample,
@@ -725,14 +580,10 @@ MEGAFLOOD_HOLE_FILL_M = 700.0
 
 # Shore->deep colour: shallow water is lighter, deep water tends to the navy. Scale (m)
 # over which the flood colour deepens with water depth.
-MEGAFLOOD_DEEP_SCALE_M = 400.0    # shore->deep colour scale; higher keeps the turbid
-                                  # tone visible over deep water, lower goes navy fast.
-                                  # 220: the 20-40 m sill passage reads as solid water
-                                  # (at 550 it painted as pale milky film - but that was
-                                  # with the OLD bright colours). 400 (2026-07-14): at 220
-                                  # the 70 m racing belt sat at dt 0.56, so dark that the
-                                  # braid threads had no contrast; mid-ramp on the darker
-                                  # palette gives the threads room and stays un-milky.
+MEGAFLOOD_DEEP_SCALE_M = 400.0    # shore->deep colour scale; higher keeps the turbid tone
+                                  # visible over deep water, lower goes navy fast. Mid-range
+                                  # keeps the braid threads in the racing belt visible without
+                                  # the shallow sill passage painting as a pale milky film.
 # Smooth the water depth used for the shore->deep COLOUR ramp (m). Wide so broad MES
 # terraces don't mottle the shallow bay light/dark; the large-scale shore->deep gradient
 # survives. Colour only - extent/alpha use the raw depth.
@@ -744,14 +595,10 @@ MEGAFLOOD_TURBID_RAMP = True
 # Also carve the corridor DOWN into the heightmap so the 3D render shows an incised
 # scour megachannel. 0 = paint colour only, no geometry change (safe default).
 # A value like 150-400 m gives a visible flood-scoured trough. Tapered by corridor weight.
-MEGAFLOOD_SCOUR_M = 0.0   # back to 0 (190 was tried). The scour lowers the terrain TAPERED BY
-                          # THE CORRIDOR WEIGHT, i.e. it prints the corridor polygon into the
-                          # DEM: with 190 m, 78 % of the shoreline ended up sitting on the scour
-                          # ramp rather than on real topography. That is a data-falsifying edit
-                          # of a terrain that is supposed to BE the data - and it did not even
-                          # buy the incised look (removing it changed the shoreline not at all).
-                          # If a scoured megachannel is ever wanted, mask it to the CONFINED
-                          # canyon reach instead of applying it along the whole route envelope.
+MEGAFLOOD_SCOUR_M = 0.0   # scours the terrain TAPERED BY THE CORRIDOR WEIGHT, i.e. prints the
+                          # corridor polygon into the DEM - a data-falsifying edit of a terrain
+                          # that is supposed to BE the data, so keep at 0 unless a scoured
+                          # megachannel is masked to the CONFINED canyon reach specifically
 
 # Export flood_corridor.png (RGB: R=coverage, G=along-path 0..1, B=foam) so the
 # Blender script can build a real 3D flood water sheet + a "flood rolls in" animation.
@@ -1655,10 +1502,9 @@ def compute_megaflood(arr, pixel_m, transform):
     # CASCADE GATE for the 3D relief - must be taken HERE, from the PRE-edge-drop
     # surface. Beyond the corridor rim the surface is sunk by EDGE_DROP_PER_KM
     # (0.13 m/m), which is far steeper than CASCADE_SLOPE_FULL: a gate keyed to the
-    # FINAL surface therefore fires along every shoreline and stamped regular roller
-    # bands across the calm upstream lake (the "ripple tank" in hero_v11). Damped by
-    # pooledness as well, so only genuinely RACING water churns - a ponded lake behind
-    # the sill has a flat surface and must stay glassy.
+    # FINAL surface would fire along every shoreline, stamping regular roller bands
+    # across the calm upstream lake. Damped by pooledness too, so only genuinely
+    # RACING water churns - a ponded lake behind the sill stays glassy.
     # LARGE-SCALE surface slope from the PRE-edge-drop surface: shared by the 3D
     # relief gate AND the foam colour below. Smooth the surface BEFORE
     # differentiating, or the thin racing sheet's bed-inherited bumps out on the
@@ -2401,11 +2247,21 @@ def finalize(paleo, transform, crs, pbar, coverage=None):
                        VE_HINT, COLORMAP_SCHEME, coverage=coverage, transform=transform)
  
     pbar.set_description("write metadata")
+    # crs_bbox_m: [xmin,ymin,xmax,ymax] in target-CRS metres, from the actual write transform
+    # (not CROP_BBOX, which can be nudged by pixel-snapping) - lets render_waterfall.py convert
+    # any real-world CRS point (waypoints, named features) into scene km without needing
+    # rasterio (Blender's Python doesn't have it). scene_x_km = (real_x-xmin)/1000 - width_km/2,
+    # scene_y_km = (real_y-ymin)/1000 - height_km/2 (verified: no axis flip either way).
+    _xmin = float(transform.c)
+    _ymax = float(transform.f)
+    _xmax = _xmin + paleo.shape[1] * pixel_m
+    _ymin = _ymax + paleo.shape[0] * float(transform.e)  # transform.e is negative (north-up)
     meta = dict(zmin_m=zmin, zmax_m=zmax,
                 width_m=paleo.shape[1] * pixel_m, height_m=paleo.shape[0] * float(abs(transform.e)),
                 ncols=int(paleo.shape[1]), nrows=int(paleo.shape[0]), pixel_m=pixel_m,
                 paleo_sea_level_m=float(PALEO_SEA_LEVEL_M), ve_hint=float(VE_HINT),
-                crs=str(crs), heightmap_png=OUT_HEIGHTMAP_PNG)
+                crs=str(crs), heightmap_png=OUT_HEIGHTMAP_PNG,
+                crs_bbox_m=[_xmin, _ymin, _xmax, _ymax])
     if WRITE_COLORMAP:
         meta["colormap_png"] = OUT_COLORMAP_PNG
     if WRITE_COLORMAP and MEGAFLOOD_CORRIDOR:

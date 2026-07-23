@@ -35,24 +35,22 @@ import json
 import math
 import time
 import warnings
-from mathutils import Vector
+from mathutils import Vector, Matrix
 
 # =====================================================================
 # CONFIG
 # =====================================================================
 DATA_DIR   = r"output_overview"
-OUTPUT_PNG = r"output_overview\render_waterfall_v11.png"
+OUTPUT_PNG = r"output_overview\render_waterfall_v16.png"
 
 # --- console ---
 QUIET = True                         # clean output: one progress bar + summary. False = verbose debug logs
 
 # --- terrain ---
-SUBDIVISIONS = 3200                  # grid resolution (cuts per side). 600-1000 for drafts;
-                                     # 2400 -> 3200 for the overview final (2026-07-19): at
-                                     # 2400 the 117 m quads + smooth shading rounded the
-                                     # 950 m cascade rollers into puffy pillows; 87 m quads
-                                     # render them as crisp breaking crests. Build+render
-                                     # cost ~+20 %, worth it for the hero of the figure.
+SUBDIVISIONS = 2400                  # grid resolution (cuts per side). 600-1000 for drafts;
+                                     # raise toward 3200 for finals if the cascade rollers
+                                     # (MEGAFLOOD_ROLLER_LAMBDA_M) round into puffy pillows -
+                                     # the quad size must resolve their wavelength
 VE           = 3                     # regional overview
 # VE         = None                  # None = ve_hint from metadata (hero merge writes 5)
 
@@ -64,20 +62,17 @@ CAM_ALTITUDE_DEG = 24.0
 CAM_DISTANCE_KM  = None            # None = auto (~1.6 x scene width) = 448 km here
 #CAM_AZIMUTH_DEG  = 250.0          # hero: from over the Ionian, looking WSW straight
                                     # at the escarpment wall + the falls in the notch
-#CAM_ALTITUDE_DEG = 24.0           # LOWER than the old 30: a waterfall is a VERTICAL event, and
-                                    # at 30 deg the camera looked down ON the chute so the 1.8 km
-                                    # drop foreshortened into a blue patch on a slope. But 18 deg
-                                    # (tried) is too low for this crop - the camera sees PAST the
-                                    # DEM's north-west edge and the frame fills with the cut-edge
-                                    # void plus a 60 km flat lake blowing out white at grazing
-                                    # incidence. 24 keeps the drop steep and the data in frame.
-#CAM_DISTANCE_KM  = 80.0           # hero: pulled back (was 70) so the WHOLE canyon fits
-                                    # (hero_v6 was too tight)
-CAM_LENS_MM      = 160.0            # regional overview: zoomed into the escarpment/canyon
-                                    # (was 118) so the waterfall reads and the far void goes
+#CAM_ALTITUDE_DEG = 24.0           # a waterfall is a VERTICAL event: too high and the camera
+                                    # looks down ON the chute, foreshortening the 1.8 km drop
+                                    # into a blue patch on a slope; too low and the camera sees
+                                    # past the DEM's edge into the cut-edge void. 24 keeps the
+                                    # drop steep and the data in frame.
+#CAM_DISTANCE_KM  = 80.0           # hero: pulled back so the WHOLE canyon fits
+CAM_LENS_MM      = 160.0            # regional overview: zoomed into the escarpment/canyon so
+                                    # the waterfall reads and the far void goes out of frame
 
-#CAM_LENS_MM    = 88.0            # hero: TIGHT on the cascade (was 62). 62 fitted the whole
-                                    # canyon but spent half the frame on the distant approach
+#CAM_LENS_MM    = 88.0            # hero: TIGHT on the cascade. A wider lens fits the whole
+                                    # canyon but spends half the frame on the distant approach
                                     # lake - a flat plate that at a low camera angle reads as a
                                     # blown-out white slab with a straight DEM-edge cut. The
                                     # figure is about the FALL, so crop to it. (Zoom by lens, not
@@ -85,8 +80,7 @@ CAM_LENS_MM      = 160.0            # regional overview: zoomed into the escarpm
 
 # --- sun ---
 SUN_AZIMUTH_DEG  = 130.0           # regional overview: ESE (roughly BEHIND the camera) so
-                                   # the sun's reflection glitters the foreground Ionian.
-                                   # (was 315/NW relief light - swapped for the sea glitter)
+                                   # the sun's reflection glitters the foreground Ionian
 #SUN_AZIMUTH_DEG   = 85.0           # hero: ENE, ~behind the WSW-facing camera -> lights
                                     # INTO the amphitheatre AND glitters the foreground
                                     # Ionian (SE light let the rim shadow cut the falls)
@@ -135,19 +129,17 @@ TERRAIN_ROUGHNESS  = 0.95           # matte ground
 
 # --- PHOTOREAL detail: break the flat "clay model" look with procedural surface texture ---
 TERRAIN_DETAIL        = True        # procedural sediment colour variation + micro rock bump
-TERRAIN_COLOR_VAR     = 0.36        # +-fraction albedo brightness variation (sediment patches); was 0.26
-                                    # (0.22 -> 0.26 for the Fig-4 satellite look)
-TERRAIN_COLOR_SCALE   = 17.0        # patch scale (bigger number = smaller patches); was 11
-TERRAIN_BUMP_STRENGTH = 0.55        # micro rock bump (0 = smooth clay); keep subtle; was 0.42
-                                    # (0.32 -> 0.42: the draft still read as clay next to
-                                    # the reference's gritty ground)
-TERRAIN_BUMP_FEATURE_M = 130.0      # GRAIN SIZE IN METRES. Was TERRAIN_BUMP_SCALE = 300, a
-                                    # Generated-coordinate frequency - i.e. 1/300 of the object,
-                                    # which is 930 m in the 280 km regional scene and 310 m in the
-                                    # 92 km hero. Those are LANDFORMS, not grain: with the rock
-                                    # bump multiplier on top they rendered the escarpment as
-                                    # blisters / bubble-wrap. Object coordinates are in km, so this
-                                    # is a real length and both panels get the same rock.
+TERRAIN_COLOR_VAR     = 0.36        # +-fraction albedo brightness variation (sediment patches)
+TERRAIN_COLOR_SCALE   = 17.0        # patch scale (bigger number = smaller patches)
+TERRAIN_BUMP_STRENGTH = 0.55        # micro rock bump (0 = smooth clay); keep subtle
+TERRAIN_BUMP_FEATURE_M = 130.0      # GRAIN SIZE IN METRES, fed through Object coordinates (km
+                                    # scene units) rather than Generated coordinates - a
+                                    # Generated-coordinate frequency normalises over the
+                                    # object's bounding box, so the SAME setting gives a
+                                    # different physical grain in each panel (930 m regional vs
+                                    # 310 m hero) and is anisotropic on a non-square DEM. Those
+                                    # are LANDFORM-scale artefacts, not grain: with the rock bump
+                                    # multiplier on top they render the escarpment as blisters.
 TERRAIN_BUMP_FINE     = 0.45        # weight of a 2nd, 5x finer bump octave. One octave of noise
                                     # has one grain size, and a single grain size IS the plastic
                                     # look; real ground is self-similar. Cheap, big payoff.
@@ -163,7 +155,7 @@ TERRAIN_BUMP_FINE     = 0.45        # weight of a 2nd, 5x finer bump octave. One
 # normal, which is the right choice: it must match what the viewer SEES, not the true gradient.)
 TERRAIN_ROCK          = True
 TERRAIN_ROCK_COLOR    = (0.30, 0.27, 0.24)   # dry exposed rock: dark warm grey
-TERRAIN_ROCK_STRENGTH = 0.62        # max mix toward the rock colour on a vertical face; was 0.50
+TERRAIN_ROCK_STRENGTH = 0.62        # max mix toward the rock colour on a vertical face
 TERRAIN_ROCK_SLOPE_ON = 0.97        # cos(slope) where rock starts (0.97 = ~14 deg)
 TERRAIN_ROCK_SLOPE_FULL = 0.40      # cos(slope) of full rock  (0.40 = ~66 deg)
                                     # WIDE ramp on purpose. A narrow one (0.90 -> 0.55) turns
@@ -190,20 +182,19 @@ TERRAIN_ROCK_ROUGH    = 0.88        # rock roughness, mildly below TERRAIN_ROUGH
 # so the same settings suit both the wide overview and the close hero.
 ATMOSPHERE       = True             # the single biggest realism win for a wide landscape
 HAZE_COLOR       = (0.62, 0.72, 0.86)   # haze tint - match the sky horizon (blue-grey)
-HAZE_STRENGTH    = 0.55             # max haze mix on the farthest terrain (0..1). 0.68 + the
-                                    # old 340 km start washed the WHOLE overview frame 25-40%
-                                    # grey - the facies texture and the dark flood belt only
-                                    # became visible again after this cut (dB draft, 2026-07-16)
+HAZE_STRENGTH    = 0.55             # max haze mix on the farthest terrain (0..1). Keep it low
+                                    # enough that the facies texture and the dark flood belt
+                                    # stay visible - too strong washes the whole frame grey.
 HAZE_EMIT_STRENGTH = 1.1            # haze brightness (match the horizon sky so terrain blends in)
 # ABSOLUTE camera-distance thresholds (km), NOT relative to the shot: the same values keep
 # the close hero (terrain ~35-105 km) fully crisp while the wide overview (terrain ~310-590
 # km) keeps its NEAR ground crisp and only the FAR mountains recede into haze. START must
 # sit near the overview's near edge (~310 km) or the whole overview washes out; the hero
 # is entirely nearer than START so it stays haze-free. Lower START to push haze closer.
-HAZE_START_KM    = 430.0           # REGIONAL overview: no haze nearer than this (near-ground crisp).
-                                   # was 340: the overview terrain STARTS at ~380 km from the
-                                   # camera, so 340 hazed everything including the foreground
-HAZE_END_KM      = 800.0           # full HAZE_STRENGTH at/beyond this distance (far mountains); was 620
+HAZE_START_KM    = 430.0           # REGIONAL overview: no haze nearer than this (near-ground
+                                   # crisp) - must sit beyond where the overview terrain starts
+                                   # (~380 km from camera) or the foreground hazes too
+HAZE_END_KM      = 800.0           # full HAZE_STRENGTH at/beyond this distance (far mountains)
 # HERO: the camera sits ~80 km out, so terrain runs from ~40 km (foreground escarpment) to
 # ~140 km (far horizon). Haze from 85 km keeps the falls and the near canyon crisp while the
 # far edge of the DEM - the straight cut border with its lit vertical face - dissolves into
@@ -224,10 +215,10 @@ HAZE_END_KM      = 800.0           # full HAZE_STRENGTH at/beyond this distance 
 CLOUD_SHADOWS    = True
 CLOUD_ALT_KM     = 12.0             # plane altitude in world km (above VE-scaled peaks)
 CLOUD_SCALE_KM   = 38.0             # cloud feature size (km)
-CLOUD_COVER      = 0.45             # noise-gate threshold = 1-COVER. NOTE the noise Fac is
-                                    # roughly Gaussian around 0.5, so 0.34 (thr 0.66) produced
-                                    # near-ZERO actual cover - dC draft was pixel-identical to
-                                    # no clouds. ~0.45 (thr 0.55) = a real scattered field.
+CLOUD_COVER      = 0.45             # noise-gate threshold = 1-COVER. The noise Fac is roughly
+                                    # Gaussian around 0.5, so thresholds much above 0.6 produce
+                                    # near-zero actual cover; ~0.45 (thr 0.55) gives a real
+                                    # scattered field.
 CLOUD_DENSITY    = 0.65             # max shadow opacity: clouds are translucent, not plates
 CLOUD_EDGE_SOFT  = 0.14             # gate ramp half-width: bigger = softer cloud edges
 # Clear zones: keep them TIGHT. The 160 mm overview frame is only ~100 km wide, so the
@@ -235,9 +226,99 @@ CLOUD_EDGE_SOFT  = 0.14             # gate ramp half-width: bigger = softer clou
 # no shadow survived anywhere. Protect only the cascade/bay and two spots of the belt.
 CLOUD_CLEAR_KM   = [(13.0, -6.0, 26.0),   # (x, y, radius) world km: canyon head + bay + cascade
                     (-24.0, -15.0, 18.0), # lower belt reach
-                    (-58.0, -13.0, 18.0), # mid belt reach
-                    (-95.0, -12.0, 20.0)] # west belt reach (v10 had cloud shadow ON the torrent)
+                    (-58.0, -13.0, 18.0)] # mid belt reach
 CLOUD_CLEAR_FEATHER_KM = 14.0       # soft rim of the clear zones
+
+# --- scale bars: dashed height/width reference sticks, ONLY near the waterfall. The ONLY
+# annotation baked into the render itself - geological place-names
+# and the north arrow stay flat 2D overlays (see below), because those don't need true 3D
+# placement. The scale bars do: they must read correctly in the render's oblique perspective,
+# which a flat line drawn on top afterwards cannot fake.
+#
+# Elevations are MEASURED off merged_paleo_dem.tif, not eyeballed: rim crest = MEGAFLOOD_PATH
+# waypoint 14, base of the fall = waypoint 15. Drop = 1973.6 m, consistent with the
+# manuscript's 1.7-2.0 km corrected palaeo-waterfall height window.
+SCALE_BARS = True
+SCALE_VERTICAL_XY_M    = (532600.0, 4075000.0)             # beside the base of the fall (wp15 x,y)
+SCALE_VERTICAL_TOP_M   = (*SCALE_VERTICAL_XY_M, -221.8)     # rim elevation (wp14's z)
+SCALE_VERTICAL_BASE_M  = (*SCALE_VERTICAL_XY_M, -2195.4)    # base elevation (wp15's z)
+SCALE_VERTICAL_OFFSET_KM = 2.0      # sideways (north, +Y) shift off the corridor centreline so
+                                     # the bar sits beside the cascade, not inside the flood sheet
+# Amphitheatre falling-front width (measured: flood_corridor R>0.5, -180>elev>-2200 m):
+# N-S span ~17.5 km, consistent with the manuscript's ">20 km" measured along the curved rim
+# (a straight chord under-reads the curve on purpose - it's what a scale bar draws).
+SCALE_HORIZONTAL_X_M   = 519500.0   # near the rim crest, just upstream of the canyon head
+SCALE_HORIZONTAL_Y_RANGE_M = (4068800.0, 4086300.0)
+SCALE_HORIZONTAL_Z_M   = -221.8     # rim elevation - reads the width at the TOP of the fall
+SCALE_DASH_KM       = 0.7
+SCALE_GAP_KM        = 0.4
+SCALE_THICKNESS_KM  = 0.12
+SCALE_TICK_KM       = 1.4           # end-cap tick length (perpendicular to the bar)
+SCALE_CAMERA_PULL_KM = 3.0          # pull the bars toward the camera along the actual view ray
+                                     # so they float clear of intervening terrain (needs
+                                     # make_camera() to have already run - see main())
+SCALE_COLOR         = (0.04, 0.035, 0.03, 1.0)  # dark charcoal ink: reads against the foam,
+                                     # the blue water AND the tan rock alike - a pale bar has
+                                     # ~zero contrast against the cascade's whitewater
+
+# --- scale bar km labels: a bare dashed stick reads as decoration without a number next to
+# it. Values are NOT re-measured here - they reuse the exact drop_m/width_m this function
+# already computes from the measured waypoints above, so the label can never drift out of
+# sync with the geometry it labels.
+SCALE_LABELS         = True
+SCALE_LABEL_HEIGHT_KM = 2
+SCALE_LABEL_GAP_KM   = 1.0          # clears the tick end before the text starts
+SCALE_VERTICAL_LABEL   = None       # None = auto "~{drop_m/1000:.1f} km"; string overrides
+SCALE_HORIZONTAL_LABEL = "~20 km"   # the manuscript's own wording ("more than 20 km wide"),
+                                     # not the bar's own ~17.5 km straight-chord length -
+                                     # this only overrides what's PRINTED, not the geometry
+
+# --- geological / topographic place-names: flat billboarded text (always faces the camera),
+# same dark ink as the scale bars, only THREE of them. Positions are PROBED against
+# merged_paleo_dem.tif and confirmed in-frame via world_to_camera_view, not eyeballed.
+# Terms and siting follow the manuscript directly:
+#   - "Sicily Sill": the broad near-planar shelf landward of the canyon rim, on dry
+#     (desiccated) ground - the whole sill was subaerially exposed during the MSC.
+#   - "Hyblean Plateau": the uplifted foreland domain forming Sicily's southern margin -
+#     sited on clearly elevated (+779 m) dry terrain near the frame's upper-left edge.
+#   - "Ionian Basin": the receiving abyssal plain the flood empties into - sited in open
+#     deep water SE of the plunge, clear of the corridor/plume. Excluded from glossy rays
+#     (GEO_LABEL_NO_REFLECTION) so it doesn't mirror in the sea below it.
+# Deliberately NOT labelled: "Noto Canyon"/"Malta Escarpment". The canyon is the render's own
+# subject (a label would compete with the scale bars sitting right on it), and the manuscript
+# is explicit that only the Noto Canyon - not the Malta Escarpment generally - carries
+# megaflood evidence, so naming the escarpment risks implying the wrong thing.
+GEO_LABELS = True
+GEO_LABEL_HEIGHT_KM      = 2.6
+GEO_LABEL_LIFT_KM        = 0.6      # float above the terrain surface (avoid z-fighting)
+GEO_LABEL_CAMERA_PULL_KM = 3.0      # same trick as the scale bars - guarantees the label
+                                     # floats clear of intervening terrain on this sightline
+GEO_LABEL_NO_REFLECTION  = True     # hide these from glossy/reflection rays; camera rays
+                                     # still see the label normally
+GEO_LABELS_LIST = [
+    # (display text, x_m, y_m, elev_m) - UTM33N, elev_m read from merged_paleo_dem.tif
+    ("Sicily Sill",     506347.5, 4043169.0,   -70.5),
+    ("Hyblean Plateau", 475000.0, 4095000.0,   779.4),
+    ("Ionian Basin",    555000.0, 4060000.0, -2907.0),
+]
+
+# --- north arrow ---------------------------------------------------------------------------
+# A flat HUD compass, NOT a 3D object lying on the terrain: at CAM_ALTITUDE_DEG=24 a
+# ground-plane arrow would foreshorten into a squashed sliver. Instead it's built a few km
+# directly in front of the camera lens (NORTH_ARROW_DIST_KM), nearer than any terrain in the
+# scene so it can never be occluded, and oriented from the camera's own right/up basis - i.e.
+# glued to the image plane, like a corner compass icon in a GIS layout, but built as real
+# Cycles geometry. Its bearing is the projection of true world north (+Y, per CAM_AZIMUTH_DEG's
+# compass convention: az 0 = north = scene +Y) onto the camera's image-plane basis.
+NORTH_ARROW = True
+NORTH_ARROW_DIST_KM       = 5.0     # HUD distance in front of the lens (km)
+NORTH_ARROW_MARGIN_X_FRAC = 0.90    # corner position, as a fraction of the half-frame WIDTH
+NORTH_ARROW_MARGIN_Y_FRAC = 0.97    # ...and HEIGHT, at that distance
+NORTH_ARROW_LEN_FRAC    = 0.14      # total shaft+head length, as a fraction of the HUD
+                                     # half-frame HEIGHT - reads as a small corner icon
+NORTH_ARROW_HEAD_FRAC   = 0.32      # arrowhead length as a fraction of the total length
+NORTH_ARROW_THICK_FRAC  = 0.10      # shaft thickness as a fraction of the total length
+NORTH_ARROW_LABEL_FRAC  = 0.34      # "N" cap height as a fraction of the total length
 
 # --- realistic water (used when PHOTOREAL) ---
 WATER_ROUGHNESS     = 0.16          # low enough that the sun stays a sharp highlight the
@@ -308,47 +389,27 @@ FLOOD_SHEET_COLOR    = (0.03, 0.12, 0.28)   # turbid flood blue (dark - most col
 FLOOD_FOAM_COLOR     = (0.90, 0.94, 0.97)   # whitewater tint at the cascade (mask B channel)
 FLOOD_SHEET_ALPHA    = 0.95          # opacity of WHITEWATER (foam B >= ~0.35): the cascade
                                      # must stay a solid tumbling body
-FLOOD_SHEET_ALPHA_OPEN = 0.50        # opacity of open (foam-free) water (2026-07-14). The
-                                     # braided-channel texture lives in the painted BED, and
-                                     # only untinted ALPHA lets it read: the transmission
-                                     # lobe tints by Base Color, and dark-blue x dark bed =
-                                     # black - raising transmission to 0.65 changed nothing
-                                     # (measured, draft t5). Alpha is a clear window: the
-                                     # belt becomes painted braids + a dark-blue veil.
-FLOOD_SHEET_IOR      = 1.0           # 1.0 = NO Fresnel reflection at all (2026-07-14). The
-                                     # sediment torrent must read DARK like the Madof Fig-4
-                                     # channels, but the overview camera sees the belt at
-                                     # 75-85 deg incidence, and grazing Fresnel goes to ~1
-                                     # for ANY refractive water (measured: IOR 1.12 dimmed
-                                     # the band by only 8%, IOR 1.05 barely more). Roughness
-                                     # cannot fix it either (0.55 = the milky-slab lesson
-                                     # below - it only spreads the same energy). Only a unity
-                                     # IOR kills the mirror: the sheet becomes matte sediment
-                                     # water, the cascade foam stays white as ALBEDO, and the
-                                     # swell geometry still shades diffusely. The SEA keeps
-                                     # WATER_IOR 1.33 and its sun glitter.
-FLOOD_SHEET_ROUGHNESS = 0.18         # 0.18, DOWN from 0.55. The high roughness existed to hide a
-                                     # problem that no longer exists: with a geometrically FLAT
-                                     # sheet, bump normals could not break the sky reflection, so
-                                     # the fix was to blur the reflection by roughening the water.
-                                     # But rough water under a bright sky scatters it diffusely,
-                                     # and the ponded flood came out as a MILKY WHITE SLAB next to
-                                     # a deep-blue Ionian - two water bodies, two materials.
-                                     # MEGAFLOOD_LAKE_SWELL_M now puts REAL swell geometry on the
-                                     # calm water (the same lesson SEA_WAVE_GEO learned), so the
-                                     # geometry breaks the reflection and the roughness can go back
-                                     # down to the sea's own value. Result: blue water with a sun
-                                     # glitter path. Foam still drives roughness up to 0.9 at the
-                                     # cascade via the mask's B channel, so whitewater stays matte.
+FLOOD_SHEET_ALPHA_OPEN = 0.50        # opacity of open (foam-free) water. The braided-channel
+                                     # texture lives in the painted BED, and only untinted ALPHA
+                                     # lets it read through as painted braids + a dark-blue veil
+FLOOD_SHEET_IOR      = 1.0           # 1.0 = NO Fresnel reflection. The sediment torrent must
+                                     # read dark like the reference's channels, but at the
+                                     # overview camera's grazing incidence (75-85 deg) any
+                                     # refractive water's Fresnel goes to ~1 regardless of IOR
+                                     # or roughness. Only a unity IOR kills the mirror: the
+                                     # sheet becomes matte sediment water, foam stays white as
+                                     # albedo. The SEA keeps WATER_IOR 1.33 and its sun glitter.
+FLOOD_SHEET_ROUGHNESS = 0.18         # kept low because MEGAFLOOD_LAKE_SWELL_M puts real swell
+                                     # geometry on the calm water (same lesson as SEA_WAVE_GEO):
+                                     # the geometry itself breaks the sky reflection, so
+                                     # roughness no longer needs to blur it - a high roughness
+                                     # scatters the sky diffusely and reads as a milky white
+                                     # slab instead of blue water. Foam still drives roughness
+                                     # up to 0.9 at the cascade via the mask's B channel.
 FLOOD_SHEET_TRANSMISSION = 0.38      # light passes through to the painted flooded ground;
-                                     # lower = the sheet's own dark blue asserts more (the
-                                     # regional flood was washing out pale over light paint).
-                                     # 0.30 (was 0.45): shallow bay water stays solid blue
-                                     # instead of letting the tan bed mottle through.
-                                     # 0.38 (2026-07-14): the merge now bakes BRAIDED channel
-                                     # threads into the corridor paint (BRAID_THREADS) and
-                                     # they must read through the sheet; the old mottle risk
-                                     # is gone because the bed paint itself is depth-smoothed.
+                                     # lower = the sheet's own dark blue asserts more. Must stay
+                                     # high enough that the baked BRAIDED channel threads
+                                     # (BRAID_THREADS) read through the sheet.
 FLOOD_WAVE_STRENGTH  = 0.09          # ripple bump on the flood sheet (a torrent, not glass);
                                      # raised from 0.035 -> the approach was reading as a
                                      # glassy mirror; some break-up makes it read as moving
@@ -371,15 +432,11 @@ FLOOD_CORRIDOR_PNG   = None          # None = read 'flood_corridor_png' from met
 # geometry that catches the sun and casts into its own troughs.
 # Needs MEGAFLOOD_CASCADE_RELIEF=True in merge_paleo_dem.py.
 CASCADE_RELIEF       = True
-CASCADE_RELIEF_SCALE = 1.4          # multiplier on the baked amplitude - the whole point
-                                     # (1.0 -> 1.2 2026-07-14: "mehr Wasser im Wasserfall" -
-                                     # taller crests catch more sun at overview distance;
-                                     # 1.2 -> 1.45 2026-07-16: the deeper canyon sheet made
-                                     # the chute read milky-flat - deeper troughs self-shadow
-                                     # and give the whitewater plasticity)
-                                     # of exporting the relief as its own map is that this
-                                     # can be retuned WITHOUT re-running the ~10 min merge.
-                                     # >1 = wilder whitewater; 0 = flat sheet (old look).
+CASCADE_RELIEF_SCALE = 1.4          # multiplier on the baked amplitude - taller crests catch
+                                     # more sun and self-shadow their troughs for whitewater
+                                     # plasticity. The whole point of exporting the relief as
+                                     # its own map is that this retunes WITHOUT re-running the
+                                     # ~10 min merge. >1 = wilder whitewater; 0 = flat sheet.
 
 # --- SPRAY PLUME (3D volume where the cascade lands) ---
 # The merge's PLUNGE_MIST_M apron is FLAT - it lies on the water. This is the real thing:
@@ -387,17 +444,12 @@ CASCADE_RELIEF_SCALE = 1.4          # multiplier on the baked amplitude - the wh
 # and fades out with height above the LOCAL water surface. Needs MEGAFLOOD_MIST_MASK=True.
 # (A bounded OBJECT volume is safe; a world Volume Scatter is what turns this scene black.)
 PLUNGE_MIST      = True
-MIST_DENSITY     = 0.9               # volume density multiplier. 1.4 -> 0.9 (2026-07-19): at
-                                     # 1.4 the veil lay as uniform milk over the whole cascade
-                                     # and hid the roller geometry the relief map exists to
-                                     # show. 0.9 keeps the plunge spray but lets crests read.
-                                     # The single knob for "how
-                                     # much spray", and it is retunable WITHOUT re-running
-                                     # the merge. 2.2 (first try) buried the whole canyon in
-                                     # a fog bank; 0.25 was a thin haze. 1.0 = a spray veil
-                                     # you can still see the cascade through. Scales with how
-                                     # many km of volume a camera ray crosses, so a tighter
-                                     # crop needs a bit more.
+MIST_DENSITY     = 1.4               # volume density multiplier - the single knob for "how
+                                     # much spray", retunable WITHOUT re-running the merge.
+                                     # ~2.2 buries the canyon in fog, ~0.25 is a thin haze, 1.0
+                                     # is a spray veil you can still see the cascade through.
+                                     # Scales with how many km of volume a camera ray crosses,
+                                     # so a tighter crop needs a bit more.
 MIST_COLOR       = (0.92, 0.95, 0.98)  # spray is white with a cold cast
 MIST_ANISOTROPY  = 0.35              # forward scattering: the plume GLOWS when the sun is
                                      # behind it, like real backlit spray. 0 = flat fog.
@@ -1621,6 +1673,334 @@ def make_cloud_shadows(ve, width_km, height_km):
     return plane
 
 
+def _crs_to_scene(meta, ve, width_km, height_km, x_m, y_m, elev_m):
+    """Real-world CRS metres -> scene km, using crs_bbox_m from heightmap_meta.json
+    (written by merge_paleo_dem.py's finalize(); patch the json by hand if it predates that
+    field). Verified against CLOUD_CLEAR_KM's hand-tuned canyon-head/lip values - no axis flip
+    either way: scene_x = (real_x-xmin)/1000 - width_km/2, same for y; scene_z = ve*elev_m/1000,
+    matching make_terrain()'s displacement."""
+    xmin, ymin, xmax, ymax = meta["crs_bbox_m"]
+    sx = (x_m - xmin) / 1000.0 - width_km / 2.0
+    sy = (y_m - ymin) / 1000.0 - height_km / 2.0
+    sz = ve * elev_m / 1000.0
+    return sx, sy, sz
+
+
+def make_annotation_material():
+    """Shared 'ink' material for every baked-in annotation - scale bars, their km labels,
+    geological place-names, the north arrow - so the whole annotation layer reads as ONE
+    consistent overlay rather than a patchwork of separately-tuned materials."""
+    mat = bpy.data.materials.new("annotation_mat")
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    if bsdf:
+        _set_input(bsdf, ["Base Color"], SCALE_COLOR)
+        _set_input(bsdf, ["Roughness"], 0.55)
+        _set_input(bsdf, ["Metallic"], 0.0)
+        _set_input(bsdf, ["Specular", "Specular IOR Level"], 0.1)
+        # a little self-emission of the SAME dark colour - not a glow, just insurance against
+        # the ink going fully black-in-shadow (indistinguishable from a cast shadow) on the
+        # side of the terrain away from the sun
+        _set_input(bsdf, ["Emission Color"], SCALE_COLOR)
+        _set_input(bsdf, ["Emission Strength"], 0.6)
+    return mat
+
+
+def _camera_basis(cam):
+    """right, up, to_cam unit vectors (world space) from the camera's OWN local axes.
+    Needs bpy.context.view_layer.update() to have run since make_camera() - the TRACK_TO
+    constraint's rotation is only baked into matrix_world after the depsgraph evaluates it."""
+    m = cam.matrix_world.to_3x3()
+    right = m.col[0].normalized()
+    up = m.col[1].normalized()
+    # camera looks down its own local -Z, so local +Z points AWAY from what it's looking at -
+    # i.e. "toward the camera" for anything positioned in front of the lens
+    to_cam = m.col[2].normalized()
+    return right, up, to_cam
+
+
+def _billboard_matrix(loc, cam):
+    """World matrix for a flat object at `loc` (km) that faces the camera: local +X = camera
+    right, +Y = camera up, +Z = toward the camera - so a FONT curve built in its own local XY
+    plane reads right-side-up and un-mirrored from the camera's point of view, at any azimuth
+    or altitude, without a Track-To constraint (simpler, and guaranteed evaluated by render
+    time since it's a plain matrix write, not something the depsgraph has to catch up on)."""
+    right, up, to_cam = _camera_basis(cam)
+    rot = Matrix((tuple(right), tuple(up), tuple(to_cam))).transposed().to_4x4()
+    rot.translation = Vector(loc)
+    return rot
+
+
+def _make_text(name, text, loc, cam, height_km, mat):
+    """A flat, camera-facing text label (see _billboard_matrix). Used for both the scale-bar
+    km numbers and the geological place-names - same billboarding, same ink."""
+    curve = bpy.data.curves.new(name, type="FONT")
+    curve.body = text
+    curve.size = height_km
+    curve.align_x = "CENTER"
+    curve.align_y = "CENTER"
+    curve.extrude = 0.0        # flat: any extrusion would run along local Z (toward the
+                                # camera), invisible face-on and pure risk at the silhouette
+    obj = bpy.data.objects.new(name, curve)
+    bpy.context.collection.objects.link(obj)
+    obj.matrix_world = _billboard_matrix(loc, cam)
+    obj.data.materials.append(mat)
+    try:
+        obj.visible_shadow = False
+    except AttributeError:
+        pass
+    return obj
+
+
+def _dashed_bar(name, p0, p1, tick_dir, mat):
+    """One dashed straight bar p0->p1 (scene km, Vector) with a short perpendicular
+    tick cap at each end. Returns the joined object. Segment length is SCALE_DASH_KM so it
+    doesn't machine-look like a solid rod; the tick caps read as ruler end-marks."""
+    v0, v1 = Vector(p0), Vector(p1)
+    length = (v1 - v0).length
+    direction = (v1 - v0).normalized() if length > 1e-6 else Vector((0, 0, 1))
+    rot = Vector((0, 0, 1)).rotation_difference(direction)
+    tick_rot = Vector((0, 0, 1)).rotation_difference(tick_dir.normalized())
+
+    parts = []
+    d = 0.0
+    while d < length:
+        seg_len = min(SCALE_DASH_KM, length - d)
+        centre = v0 + direction * (d + seg_len / 2.0)
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=tuple(centre))
+        cube = bpy.context.active_object
+        cube.rotation_mode = "QUATERNION"
+        cube.rotation_quaternion = rot
+        cube.scale = (SCALE_THICKNESS_KM, SCALE_THICKNESS_KM, seg_len / 2.0)
+        parts.append(cube)
+        d += SCALE_DASH_KM + SCALE_GAP_KM
+
+    for end in (v0, v1):
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=tuple(end))
+        cap = bpy.context.active_object
+        cap.rotation_mode = "QUATERNION"
+        cap.rotation_quaternion = tick_rot
+        cap.scale = (SCALE_THICKNESS_KM, SCALE_THICKNESS_KM, SCALE_TICK_KM / 2.0)
+        parts.append(cap)
+
+    bpy.ops.object.select_all(action="DESELECT")
+    for p in parts:
+        p.select_set(True)
+    bpy.context.view_layer.objects.active = parts[0]
+    bpy.ops.object.join()
+    bar = bpy.context.active_object
+    bar.name = name
+    bar.data.materials.append(mat)
+    try:
+        bpy.ops.object.shade_smooth()
+    except Exception:
+        pass
+    return bar
+
+
+def make_scale_bars(meta, ve, width_km, height_km, cam, mat):
+    """Dashed height/width reference sticks planted right at the cascade, each with a km
+    label - see the CONFIG block above for why this is baked into the 3D scene instead of
+    drawn in Illustrator, and for the manuscript cross-check behind the two label values.
+
+    Called AFTER make_camera() on purpose: at a 448 km camera distance the bar's own
+    sideways offset (meant to clear the flow) isn't enough to also clear the terrain
+    along this specific sightline, which can otherwise occlude the bars behind the
+    canyon wall regardless of colour. Pulling each endpoint a few
+    km TOWARD the camera (SCALE_CAMERA_PULL_KM) guarantees it floats in front of
+    whatever terrain would otherwise hide it, the same trick used for any always-visible
+    3D annotation/gizmo."""
+    if not SCALE_BARS:
+        return None
+    if "crs_bbox_m" not in meta:
+        log("scale bars: heightmap_meta.json has no crs_bbox_m (re-merge, or patch the json "
+            "by hand) - skipped")
+        return None
+
+    def pull_toward_cam(pt, pull_km=SCALE_CAMERA_PULL_KM):
+        if cam is None:
+            return pt
+        v = Vector(pt)
+        d = (cam.location - v)
+        if d.length < 1e-6:
+            return pt
+        return tuple(v + d.normalized() * pull_km)
+
+    vx, vy, vz_top = _crs_to_scene(meta, ve, width_km, height_km, *SCALE_VERTICAL_TOP_M)
+    bx, by, bz_base = _crs_to_scene(meta, ve, width_km, height_km, *SCALE_VERTICAL_BASE_M)
+    off = SCALE_VERTICAL_OFFSET_KM
+    top = pull_toward_cam((vx, vy + off, vz_top))
+    base = pull_toward_cam((bx, by + off, bz_base))
+    vertical = _dashed_bar("scale_bar_vertical", base, top,
+                            Vector((1, 0, 0)), mat)
+
+    y0_m, y1_m = SCALE_HORIZONTAL_Y_RANGE_M
+    left = pull_toward_cam(_crs_to_scene(meta, ve, width_km, height_km,
+                                          SCALE_HORIZONTAL_X_M, y0_m, SCALE_HORIZONTAL_Z_M))
+    right = pull_toward_cam(_crs_to_scene(meta, ve, width_km, height_km,
+                                           SCALE_HORIZONTAL_X_M, y1_m, SCALE_HORIZONTAL_Z_M))
+    horizontal = _dashed_bar("scale_bar_horizontal", left, right,
+                              Vector((0, 0, 1)), mat)
+
+    for obj in (vertical, horizontal):
+        for attr in ("visible_shadow",):
+            try:
+                setattr(obj, attr, False)   # a floating annotation shouldn't cast a shadow
+            except AttributeError:          # onto the terrain it's been pulled in front of
+                pass
+
+    drop_m = SCALE_VERTICAL_TOP_M[2] - SCALE_VERTICAL_BASE_M[2]
+    width_m = y1_m - y0_m
+
+    labels = []
+    if SCALE_LABELS:
+        vert_text = SCALE_VERTICAL_LABEL or f"~{drop_m / 1000.0:.1f} km"
+        horiz_text = SCALE_HORIZONTAL_LABEL or f"~{width_m / 1000.0:.1f} km"
+        # place beyond each bar's own tick, along the SAME direction the tick already points
+        # (vertical bar's ticks run in X, horizontal bar's ticks run in Z) - reads as a
+        # continuation of the ruler rather than a random floating caption
+        vmid = (Vector(base) + Vector(top)) / 2.0
+        vlabel_pt = pull_toward_cam(
+            tuple(vmid + Vector((1, 0, 0)) * (SCALE_TICK_KM / 2.0 + SCALE_LABEL_GAP_KM)),
+            pull_km=1.0)
+        labels.append(_make_text("scale_label_vertical", vert_text, vlabel_pt, cam,
+                                  SCALE_LABEL_HEIGHT_KM, mat))
+
+        hmid = (Vector(left) + Vector(right)) / 2.0
+        hlabel_pt = pull_toward_cam(
+            tuple(hmid + Vector((0, 0, 1)) * (SCALE_TICK_KM / 2.0 + SCALE_LABEL_GAP_KM)),
+            pull_km=1.0)
+        labels.append(_make_text("scale_label_horizontal", horiz_text, hlabel_pt, cam,
+                                  SCALE_LABEL_HEIGHT_KM, mat))
+        log(f"scale labels: '{vert_text}' / '{horiz_text}'")
+
+    log("scale bars: vertical drop %.0f m (rim %.0f m -> base %.0f m), horizontal front %.1f km, "
+        "pulled %.1f km toward camera"
+        % (drop_m, SCALE_VERTICAL_TOP_M[2], SCALE_VERTICAL_BASE_M[2], width_m / 1000.0,
+           SCALE_CAMERA_PULL_KM))
+    return vertical, horizontal, labels
+
+
+def make_geo_labels(meta, ve, width_km, height_km, cam, mat):
+    """Three billboarded place-name labels - see the CONFIG block for the manuscript-checked
+    siting of each. Camera-pulled exactly like the scale bars, for the same occlusion reason."""
+    if not GEO_LABELS or cam is None:
+        return []
+    sea_z = ve * meta["paleo_sea_level_m"] / 1000.0 if SHOW_WATER else None
+    objs = []
+    for text, x_m, y_m, elev_m in GEO_LABELS_LIST:
+        sx, sy, sz = _crs_to_scene(meta, ve, width_km, height_km, x_m, y_m, elev_m)
+        # "Ionian Basin" sits on the sea FLOOR (elev far below sea level) - floating it above
+        # the terrain still buries it under the water surface, since the wavy displaced sea
+        # mesh (SEA_WAVE_GEO) eats ragged holes through letters where crests poke in front of
+        # them. Anything below the waterline floats from the WATER surface instead.
+        base_z = max(sz, sea_z) if sea_z is not None else sz
+        lifted = Vector((sx, sy, base_z + GEO_LABEL_LIFT_KM))
+        d = cam.location - lifted
+        loc = lifted + d.normalized() * GEO_LABEL_CAMERA_PULL_KM if d.length > 1e-6 else lifted
+        obj = _make_text(f"geo_label_{text.replace(' ', '_')}", text, tuple(loc), cam,
+                          GEO_LABEL_HEIGHT_KM, mat)
+        if GEO_LABEL_NO_REFLECTION:
+            # "Ionian Basin" over open water was picking up a soft mirror double in the
+            # glossy sea below it (SEA_WAVE_GEO + a fairly low WATER_ROUGHNESS) - the label
+            # still renders normally to camera rays, it just stops appearing IN reflections
+            try:
+                obj.visible_glossy = False
+            except AttributeError:
+                pass
+        objs.append(obj)
+    log("geo labels: " + ", ".join(t for t, *_ in GEO_LABELS_LIST))
+    return objs
+
+
+def _flat_mesh(name, verts, faces, mat):
+    """A mesh built from literal world-space vertex positions - no rotation step, so (unlike
+    a cube/cone rotated only by rotation_difference, which leaves an undetermined 'roll'
+    around its own axis) there is no ambiguity about which way it faces the camera. Used for
+    the north arrow so its silhouette is a crisp flat triangle/rectangle, not a foreshortened
+    3D primitive (a rotated cone arrowhead renders as a blobby paper-aeroplane shape for
+    exactly this reason)."""
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata([tuple(v) for v in verts], [], [faces])
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    obj.data.materials.append(mat)
+    try:
+        obj.visible_shadow = False
+    except AttributeError:
+        pass
+    return obj
+
+
+def make_north_arrow(cam, mat):
+    """A flat HUD compass glued a few km in front of the lens - see the CONFIG block for why
+    this, not a ground-plane arrow or an Illustrator overlay. Bearing = true north (+Y)
+    projected onto the camera's own right/up basis; a direction needs no perspective divide,
+    so this is exact for a flat icon regardless of camera azimuth/altitude/lens. Built as flat
+    world-space triangles/rectangles in the camera's own image plane (right/up), not rotated
+    3D primitives - see _flat_mesh for why."""
+    if not NORTH_ARROW or cam is None:
+        return None
+    right, up, to_cam = _camera_basis(cam)
+
+    cd = cam.data
+    sensor_w = getattr(cd, "sensor_width", 36.0)
+    hfov = 2.0 * math.atan((sensor_w / 2.0) / cd.lens)
+    vfov = 2.0 * math.atan(math.tan(hfov / 2.0) * (RES_Y / RES_X))
+
+    d = NORTH_ARROW_DIST_KM
+    half_w = d * math.tan(hfov / 2.0)
+    half_h = d * math.tan(vfov / 2.0)
+    centre = Vector(cam.location) - to_cam * d
+    corner = centre - right * (half_w * NORTH_ARROW_MARGIN_X_FRAC) \
+                     - up * (half_h * NORTH_ARROW_MARGIN_Y_FRAC)
+
+    north = Vector((0.0, 1.0, 0.0))
+    theta = math.atan2(north.dot(up), north.dot(right))
+    dir_world = (right * math.cos(theta) + up * math.sin(theta)).normalized()
+    perp = (right * -math.sin(theta) + up * math.cos(theta)).normalized()
+
+    # sized as a fraction of the HUD frame's own half-height, so it scales sensibly with
+    # NORTH_ARROW_DIST_KM/lens/aspect - see the CONFIG block for target proportions (a small
+    # corner icon, ~7% of frame height, not the ~50%-of-frame first draft)
+    total_len = NORTH_ARROW_LEN_FRAC * half_h
+    head_len = NORTH_ARROW_HEAD_FRAC * total_len
+    shaft_len = total_len - head_len
+    thick = NORTH_ARROW_THICK_FRAC * total_len
+    head_half_w = thick * 2.2
+
+    tail = corner
+    shaft_tip = corner + dir_world * shaft_len
+    tip = corner + dir_world * total_len
+
+    shaft = _flat_mesh(
+        "north_arrow_shaft",
+        [tail + perp * (thick / 2.0), tail - perp * (thick / 2.0),
+         shaft_tip - perp * (thick / 2.0), shaft_tip + perp * (thick / 2.0)],
+        [0, 1, 2, 3], mat)
+    head = _flat_mesh(
+        "north_arrow_head",
+        [tip, shaft_tip - perp * head_half_w, shaft_tip + perp * head_half_w],
+        [0, 1, 2], mat)
+
+    bpy.ops.object.select_all(action="DESELECT")
+    shaft.select_set(True)
+    head.select_set(True)
+    bpy.context.view_layer.objects.active = shaft
+    bpy.ops.object.join()
+    arrow = bpy.context.active_object
+    arrow.name = "north_arrow"
+
+    label_pt = tip + dir_world * (NORTH_ARROW_LABEL_FRAC * total_len * 1.3)
+    label = _make_text("north_arrow_N", "N", tuple(label_pt), cam,
+                        NORTH_ARROW_LABEL_FRAC * total_len, mat)
+
+    log(f"north arrow: bearing {math.degrees(theta):.1f} deg on screen "
+        f"(HUD {d:.1f} km in front of lens, length {total_len:.3f} km)")
+    return arrow, label
+
+
 def make_sun():
     bpy.ops.object.light_add(type="SUN", location=(0, 0, 50))
     sun = bpy.context.active_object
@@ -1854,6 +2234,13 @@ def main():
     make_cloud_shadows(ve, wkm, hkm)
     make_world();                                   bar.step("world")
     cam, target = make_camera(meta, ve, wkm, hkm);  bar.step("camera")
+    # depsgraph must catch up on the camera's TRACK_TO constraint before matrix_world (and
+    # therefore world_to_camera_view / the annotation billboarding below) is trustworthy.
+    bpy.context.view_layer.update()
+    annot_mat = make_annotation_material()
+    make_scale_bars(meta, ve, wkm, hkm, cam, annot_mat)   # after the camera - see its docstring
+    make_geo_labels(meta, ve, wkm, hkm, cam, annot_mat)
+    make_north_arrow(cam, annot_mat)
     setup_render();                                 bar.step("ready")
 
     eng = bpy.context.scene.render.engine.replace("BLENDER_", "")
