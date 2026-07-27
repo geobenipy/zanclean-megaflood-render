@@ -472,17 +472,149 @@ CAM_TARGET_OFFSET_KM = (14.0, -9.0)  # regional overview: recentred onto the esc
                                     # falls framed where they were.
 # to zoom: raise CAM_LENS_MM (telephoto, keeps perspective) or lower CAM_DISTANCE_KM (move in)
 
-# --- animation ---
+# --- animation (the supplementary video) ---------------------------------------------------
+# The still above IS the publication figure and this block must never change it: every
+# animation setting is read only when ANIMATE is True, and the overrides below are applied
+# to the module globals at the top of main(). Flip ANIMATE and run the script exactly as for
+# a still - nothing else needs editing.
+#
+# The one thing that makes or breaks the clip: a 'flood_advance' that only sweeps the corridor
+# mask reveals a FROZEN PHOTOGRAPH of water. Alpha rises, but every ripple, every foam streak
+# and every wisp of spray stands perfectly still - so it reads as a wipe transition over a
+# still image, not as a flood. ANIM_WATER_MOTION is the fix: the sheet's ripple/swell bump,
+# the sea's chop and glitter, the spray plume's billows and the cloud shadows are all advected
+# per frame. (The CASCADE RELIEF is deliberately NOT advected: those are STANDING waves in a
+# chute and standing waves do not travel with the current. Sliding that map would also drag
+# the rollers off the chute and onto the flats the merge's gate exists to keep smooth.)
 ANIMATE     = False                 # render an image sequence instead of a single still
-ANIM_TYPE   = "flood_advance"       # "flood_rise" | "orbit" | "flood_and_orbit" | "flood_advance"
+ANIM_TYPE   = "flood_advance"       # "flood_advance" | "flood_rise" | "orbit" | "flood_and_orbit"
                                     # flood_advance = the corridor reveals source->lip: the
-                                    # megaflood visibly rolls in and hits the falls (hero anim;
-                                    # flood_rise only moves the distant sea plane a little)
-ANIM_FRAMES = 30*25                 # 30 s @ 25 fps; Cycles needs minutes/frame - keep it short
-ANIM_FPS    = 30
-ANIM_FORMAT = "PNG"                 # "PNG" (frame sequence) | "MP4" (FFmpeg, built into Blender)
-ANIM_DIR    = None                  # None = DATA_DIR/anim
+                                    # megaflood visibly rolls in and hits the falls (this is the
+                                    # hero anim; flood_rise only moves the distant sea plane a
+                                    # little). "orbit" swings the camera a full 360 deg, which
+                                    # walks it through the DEM's cut edges and invalidates the
+                                    # sun, the haze ramp, the CLOUD_CLEAR_KM zones and every
+                                    # annotation placement - drafts only, never a submission.
+ANIM_FPS     = 25                   # 25 fps is the usual rate for a journal SI video
+ANIM_SECONDS = 24.0                 # clip length; ANIM_FRAMES follows from it
+ANIM_FRAMES  = int(round(ANIM_SECONDS * ANIM_FPS))
+ANIM_FORMAT  = "PNG"                # "PNG" (frame sequence -> video_gen.py) | "MP4" (Blender's
+                                    # own FFmpeg). Use PNG: a multi-hour run that dies at frame
+                                    # 400 loses the whole MP4 but keeps every PNG (see
+                                    # ANIM_RESUME), and PNG frames can be re-graded/re-encoded
+                                    # for whatever format the journal asks for.
+ANIM_DIR     = None                 # None = DATA_DIR/anim
 FLOOD_RISE_FROM_M = -3500.0         # flood_rise: start level (deep) -> rises to paleo_sea_level_m
+
+# Per-frame quality. The still is 4800x3200 / 256 spp and takes ~2 h; multiplied by several
+# hundred frames that is a run measured in weeks. These override RES_X/RES_Y/SAMPLES for the
+# animation only. SUBDIVISIONS is deliberately NOT reduced: the mesh is built ONCE and then
+# reused by every frame, so its cost is a one-off, while dropping it would round the cascade
+# rollers back into pillows - which is the whole point of CASCADE_RELIEF.
+ANIM_RES_X, ANIM_RES_Y = 1920, 1280  # 3:2, i.e. the figure's exact framing, and within the
+                                     # 1920-px cap most journals put on supplementary video
+ANIM_SAMPLES        = 64             # MEASURED, not guessed. Frame 450 was rendered at 96 and
+                                     # at 64 spp and compared 1:1 at the cascade - where the
+                                     # spray volume makes noise most likely - and the two are
+                                     # indistinguishable: the denoiser carries it. 64 costs
+                                     # 4.3 min/frame against 7.6, i.e. it is what turns a
+                                     # ~70 h run into a ~39 h one. Samples are the right thing
+                                     # to cut here, NOT resolution: nobody can see the samples,
+                                     # everybody can see the pixels. Going below ~48 starts to
+                                     # risk frame-to-frame denoiser flicker, which is far more
+                                     # objectionable in motion than static noise ever is.
+ANIM_DENOISE        = True
+ANIM_MIST_STEP_RATE = 1.0            # coarser volume steps than the still's 0.5. Residual
+                                     # volume noise that would be obvious in a frozen frame is
+                                     # invisible once the plume is billowing, and the spray box
+                                     # is the single most expensive thing in the scene.
+ANIM_PERSISTENT_DATA = False         # keep the synced scene + BVH between frames instead of
+                                     # rebuilding them. It LOOKS like the obvious win here -
+                                     # nothing in this animation moves in geometry - but it was
+                                     # measured and it is not: 7.55 / 7.97 min per frame with
+                                     # it, against 7.6 / 8.3 min without, i.e. inside the noise.
+                                     # Essentially all the cost is path tracing, not scene sync.
+                                     # It holds the memory for the whole run for that nothing,
+                                     # so it stays OFF. Do not re-try it expecting a speed-up;
+                                     # cut ANIM_SAMPLES, ANIM_RES_* or ANIM_SECONDS instead.
+
+# A weekend-long unattended run WILL be interrupted (crash, reboot, full disk). With this on,
+# re-launching the very same command skips every frame already written and carries on where it
+# stopped instead of starting from scratch.
+ANIM_RESUME      = True
+ANIM_FRAME_START = 1                 # or set by hand to restart at a known-bad frame
+
+# Dramaturgy. The old setup ramped the reveal linearly across the WHOLE clip, so the flood
+# arrived exactly on the last frame and the cascade at full discharge - the subject of the
+# figure - was never actually seen running. Three phases instead:
+#   [0 .. HOLD]                 desiccated basin, calm sea: establishes the "before"
+#   [HOLD .. HOLD+ADVANCE]      the torrent crosses the basin and goes over the lip
+#   [.. end]                    full discharge: the cascade runs and the spray plume builds
+ANIM_HOLD_S       = 2.5
+ANIM_ADVANCE_S    = 11.0             # the remainder of the clip is the cascade at full flow
+ANIM_ADVANCE_EASE = True             # smooth start/stop instead of a mechanical linear ramp
+ANIM_ADVANCE_FROM = 0.55             # the reveal starts HERE, not at 0. The corridor's
+                                     # along-path coordinate is normalised over the WHOLE
+                                     # route, most of which is off to the west behind the
+                                     # camera, so a reveal from 0 spends its first seconds
+                                     # flooding ground nobody can see. Measured by rendering
+                                     # fixed FLOOD_ADVANCE values: the front first appears in
+                                     # the top-left of this framing at ~0.58, and 0.55 is
+                                     # still a completely dry frame. Re-measure this if
+                                     # MEGAFLOOD_PATH or the camera changes.
+
+ANIM_WATER_MOTION   = True
+ANIM_FLOW_DIR_DEG   = 100.0          # compass bearing the torrent FLOWS TOWARD at the cascade
+                                     # (the route runs W->E and plunges ESE). Only the surface
+                                     # TEXTURE is advected along it, so this is one mean
+                                     # direction, not a flow field - which is all that reads at
+                                     # 448 km with the chute occupying ~13 km of frame.
+# Speeds. NOT physical velocities - they are chosen so the motion READS at 448 km. The hard
+# ceiling is aliasing: a pattern strobes once it moves more than about half its own wavelength
+# per frame. Those wavelengths are known, so the ceiling is arithmetic rather than taste:
+#
+#   flood sheet   FLOOD_WAVE_SCALE 90 over 280 km  -> lambda 3.1 km  -> ceiling ~39 km/s
+#   sea           SEA_SPARKLE_SCALE 480 over 700 km -> lambda 1.5 km -> ceiling ~18 km/s
+#   (Generated coordinates span the object, hence the division by its width; the sea plane is
+#    WATER_MARGIN = 2.5 times the terrain.)
+#
+# The first pass guessed 3.2 / 0.35 / 0.45 and a 120-frame test showed why that was wrong: the
+# frame-to-frame difference over the open sea and the corridor was indistinguishable from the
+# static terrain, i.e. nothing visibly moved. Those values used 2-8 % of the ceiling. These use
+# 15-25 %, which is visible motion with a 4x margin against strobing.
+ANIM_FLOW_KM_S      = 10.0           # ~26 % of the sheet's aliasing ceiling
+ANIM_SEA_KM_S       = 2.5            # the Ionian is the calm receiving basin - it should still
+                                     # only crawl, but 0.35 was literally imperceptible
+ANIM_MIST_MOTION    = True           # billow + lift the spray plume. Separate switch because it
+                                     # touches the volume shader, and Cycles 5.1 has a history
+                                     # of crashing on those (see make_plunge_mist) - if a test
+                                     # frame dies with EXCEPTION_ACCESS_VIOLATION, turn this off
+                                     # first and the rest of the motion still works.
+ANIM_MIST_DRIFT_FRAC = 0.08          # the plume's billows drift at this fraction of
+                                     # ANIM_FLOW_KM_S. Spray churns but does not race the
+                                     # torrent that made it - and the mist box is only ~20 km
+                                     # across, so a large fraction sweeps the whole plume
+                                     # downwind within the clip. This holds the drift near
+                                     # 0.8 km/s, i.e. about one box-width over 24 s.
+ANIM_MIST_RISE_KM_S = 0.25           # spray rises as it billows; slow, or it reads as smoke
+ANIM_CLOUD_KM_S     = 3.0            # cloud shadows drifting downwind over the terrain: the
+                                     # cheapest motion cue in the whole clip, and the only one
+                                     # that moves ground which is otherwise completely static.
+                                     # Sized against CLOUD_SCALE_KM (38 km): at 3 km/s a shadow
+                                     # crosses the ~100 km frame in about half a minute, which
+                                     # is weather. The first pass used 0.45 and a shadow moved
+                                     # 11 km in the entire clip - invisible.
+
+ANIM_CAMERA       = "push"           # "static" | "push"
+ANIM_PUSH_LENS_MM = 186.0            # "push": a slow zoom CAM_LENS_MM -> this. Zooming IN only:
+                                     # the 160 mm framing was chosen so the DEM's cut-edge void
+                                     # sits just outside the frame, so anything wider exposes it.
+                                     # The camera's POSITION and DIRECTION never change, which is
+                                     # what keeps the billboarded labels, the distance haze and
+                                     # the CLOUD_CLEAR_KM zones exactly as tuned for the figure.
+                                     # (An orbit cannot: see ANIM_TYPE. The north arrow is a HUD
+                                     # sized from the lens, so it is built at the FINAL lens and
+                                     # only ever sits further inside the corner before that.)
 
 # =====================================================================
 # implementation
@@ -650,6 +782,8 @@ def _terrain_material_albedo(obj, colormap_path, cam_dist_km=100.0):
     out = nt.nodes.new("ShaderNodeOutputMaterial")
     bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
     tex = nt.nodes.new("ShaderNodeTexImage")
+    tex.name = "terrain_albedo_tex"    # animation handle: _animate_terrain_wetting reroutes
+                                       # everything downstream of this through a dry/wet mix
     tex.image = img
     tex.extension = "EXTEND"
     try:
@@ -1024,6 +1158,8 @@ def _water_material_real(water, meta=None):
             nt.links.new(ctex.outputs["Color"], csep.inputs["Color"])
 
             pfac = nt.nodes.new("ShaderNodeMath")
+            pfac.name = "sea_plume_strength"   # animation handle: the plume must not already
+                                               # stain the Ionian before the flood reaches it
             pfac.operation = "MULTIPLY"; pfac.use_clamp = True
             pfac.inputs[1].default_value = float(SEA_PLUME_STRENGTH)
             nt.links.new(csep.outputs["Red"], pfac.inputs[0])
@@ -1529,6 +1665,9 @@ def make_plunge_mist(meta, ve, width_km, height_km):
     nt.links.new(d1.outputs["Value"], d2.inputs[0])
     nt.links.new(nmix.outputs["Value"], d2.inputs[1])
     d3 = nt.nodes.new("ShaderNodeMath"); d3.operation = "MULTIPLY"
+    d3.name = "mist_density"           # animation handle: a spray plume standing over a DRY
+                                       # canyon before the water arrives is the single most
+                                       # obvious way to give the clip away as a fake
     nt.links.new(d2.outputs["Value"], d3.inputs[0])
     d3.inputs[1].default_value = float(MIST_DENSITY)
 
@@ -1598,6 +1737,10 @@ def make_cloud_shadows(ve, width_km, height_km):
 
     tc = nt.nodes.new("ShaderNodeTexCoord")     # Object coords = world km (origin at 0,0,alt)
     noise = nt.nodes.new("ShaderNodeTexNoise")
+    noise.name = "cloud_noise"                  # animation handle: the drift is applied to the
+                                                # NOISE branch only. Translating the plane itself
+                                                # would drag the CLOUD_CLEAR_KM zones along with
+                                                # it and un-protect the canyon it is shading.
     noise.inputs["Scale"].default_value = 1.0 / CLOUD_SCALE_KM
     noise.inputs["Detail"].default_value = 6.0
     try:
@@ -2096,11 +2239,331 @@ def setup_render():
             pass
 
 
-def setup_animation(scene, meta, ve, water, cam, target, flood_sheet=None):
-    """Keyframe a rising flood and/or a camera orbit; configure sequence/video output."""
-    scene.frame_start = 1
+def _apply_anim_overrides():
+    """Animation quality overrides, applied to the module globals BEFORE the scene is built.
+
+    They have to be globals, not arguments: the build functions read the CONFIG block
+    directly (that IS the configuration model here), and several of them run long before
+    setup_animation() gets a say - make_north_arrow in particular sizes the HUD from
+    RES_X/RES_Y and the camera lens, so it has to see the animation's values already.
+    """
+    global RES_X, RES_Y, SAMPLES, MIST_STEP_RATE
+    RES_X, RES_Y = ANIM_RES_X, ANIM_RES_Y
+    SAMPLES = ANIM_SAMPLES
+    MIST_STEP_RATE = ANIM_MIST_STEP_RATE
+
+
+def _iter_fcurves(action):
+    """Every f-curve of an action, on both the legacy and the layered (4.4+) data model.
+
+    Blender 4.4 moved animation into layers/strips/channelbags and left Action.fcurves as a
+    compatibility shim that can come back empty. Reading only .fcurves is how an eased curve
+    silently stays on the default interpolation.
+    """
+    if action is None:
+        return
+    for fc in getattr(action, "fcurves", []) or []:
+        yield fc
+    for layer in getattr(action, "layers", []) or []:
+        for strip in getattr(layer, "strips", []) or []:
+            for bag in getattr(strip, "channelbags", []) or []:
+                for fc in getattr(bag, "fcurves", []) or []:
+                    yield fc
+
+
+def _key(sock, keys, interp="LINEAR"):
+    """Keyframe ONE socket: keys = [(frame, value), ...], then set the interpolation on that
+    socket's own f-curve only. Per-socket rather than per-action, because the flood's eased
+    reveal and the linear texture drift live in the same node tree and must not share a mode.
+    """
+    for fr, val in keys:
+        sock.default_value = val
+        sock.keyframe_insert("default_value", frame=int(round(fr)))
+    try:
+        path = sock.path_from_id("default_value")
+    except Exception:
+        return
+    ad = getattr(sock.id_data, "animation_data", None)
+    for fc in _iter_fcurves(ad.action if ad else None):
+        if fc.data_path == path:
+            for kp in fc.keyframe_points:
+                kp.interpolation = interp
+
+
+def _insert_drift_mapping(nt, node):
+    """Splice a Mapping node in front of `node`'s Vector input so the pattern can be
+    translated per frame. Returns the Mapping, or None if the node has no Vector input.
+
+    The coordinate SOURCE is preserved. A texture node with an unconnected Vector is on
+    Generated coords (the implicit default: 0..1 across the object's bounding box), so a
+    TexCoord/Generated is wired in explicitly - a no-op at zero offset. One that already
+    reads something (the cloud noise reads Object coords) keeps that source. Either way
+    every *_SCALE in the CONFIG block keeps exactly the meaning it has in the still.
+    """
+    vin = node.inputs.get("Vector")
+    if vin is None:
+        return None
+    if vin.is_linked:
+        src = vin.links[0].from_socket
+    else:
+        src = nt.nodes.new("ShaderNodeTexCoord").outputs["Generated"]
+    mp = nt.nodes.new("ShaderNodeMapping")
+    mp.inputs["Location"].default_value = (0.0, 0.0, 0.0)
+    nt.links.new(src, mp.inputs["Vector"])
+    nt.links.new(mp.outputs["Vector"], vin)     # replaces the old link, if any
+    return mp
+
+
+def _drift_material_noise(mat, delta, n_frames, skip_linked=True):
+    """Advect every procedural noise layer of a material by `delta` over the clip.
+
+    Only ShaderNodeTexNoise is touched, and by default only ones whose Vector is unconnected:
+    the image textures in these materials are LOOKUPS (the corridor mask, the flood water
+    surface, the mist mask), keyed to real positions on the DEM, and sliding one of those
+    would move the water rather than its texture.
+
+    Sign: a shader samples noise(P + L), so whatever sat at P+L now appears at P - the
+    pattern travels along -L. Callers therefore pass the flow direction and this negates it.
+    """
+    if mat is None or not mat.use_nodes:
+        return 0
+    nt = mat.node_tree
+    n = 0
+    for node in [x for x in nt.nodes if x.type == "TEX_NOISE"]:
+        if skip_linked and node.inputs["Vector"].is_linked:
+            continue
+        mp = _insert_drift_mapping(nt, node)
+        if mp is None:
+            continue
+        _key(mp.inputs["Location"],
+             [(1, (0.0, 0.0, 0.0)), (n_frames, tuple(-d for d in delta))], "LINEAR")
+        n += 1
+    return n
+
+
+def _obj_span_km(obj, fallback=(1.0, 1.0, 1.0)):
+    """The object's own bounding-box size in km - the denominator that turns a drift in km
+    into the 0..1 units Generated coordinates actually use."""
+    try:
+        dim = [abs(v) for v in obj.dimensions]
+    except Exception:
+        return fallback
+    return tuple(d if d > 1e-6 else f for d, f in zip(dim, fallback))
+
+
+def animate_scene_motion(scene, meta, ve, width_km, height_km,
+                         water=None, flood_sheet=None, mist=None, clouds=None):
+    """Put the water, the spray and the weather in motion.
+
+    Without this the clip is a wipe over a still photograph: the corridor's alpha rises but
+    the ripples, the foam streaks and the plume never move. Everything here is an advected
+    TEXTURE, never geometry - the cascade's standing-wave relief stays exactly where the
+    merge put it, which is both correct (standing waves do not travel) and necessary (the
+    relief is spatially gated to the chute; sliding it would smear rollers onto the flats).
+    """
+    if not ANIM_WATER_MOTION:
+        return
+    n_f = ANIM_FRAMES
+    secs = ANIM_SECONDS
+    br = math.radians(ANIM_FLOW_DIR_DEG)
+    flow = (math.sin(br), math.cos(br))          # compass bearing -> scene XY unit vector
+
+    moved = []
+    if flood_sheet is not None:
+        sx, sy, _ = _obj_span_km(flood_sheet, (width_km, height_km, 1.0))
+        d = ANIM_FLOW_KM_S * secs
+        n = _drift_material_noise(flood_sheet.active_material,
+                                  (flow[0] * d / sx, flow[1] * d / sy, 0.0), n_f)
+        if n:
+            moved.append(f"flood sheet x{n} ({d:.0f} km)")
+
+    if water is not None:
+        sx, sy, _ = _obj_span_km(water, (width_km * WATER_MARGIN, height_km * WATER_MARGIN, 1.0))
+        d = ANIM_SEA_KM_S * secs
+        n = _drift_material_noise(water.active_material,
+                                  (flow[0] * d / sx, flow[1] * d / sy, 0.0), n_f)
+        if n:
+            moved.append(f"sea x{n} ({d:.0f} km)")
+
+    if mist is not None and ANIM_MIST_MOTION:
+        sx, sy, sz = _obj_span_km(mist)
+        d = ANIM_FLOW_KM_S * ANIM_MIST_DRIFT_FRAC * secs   # spray drifts, it does not race
+        rise = ANIM_MIST_RISE_KM_S * secs
+        n = _drift_material_noise(mist.active_material,
+                                  (flow[0] * d / sx, flow[1] * d / sy, rise / sz), n_f)
+        if n:
+            moved.append(f"spray x{n} ({d:.0f} km + {rise * 1000:.0f} m rise)")
+
+    if clouds is not None and ANIM_CLOUD_KM_S > 0:
+        mat = clouds.active_material
+        node = mat.node_tree.nodes.get("cloud_noise") if mat else None
+        if node is not None:
+            # Object coords on this plane ARE km, so no bounding-box division. And the drift
+            # goes on the NOISE branch alone: the clear-zone ramps read the same TexCoord and
+            # must stay nailed to the canyon they are keeping out of shadow.
+            d = ANIM_CLOUD_KM_S * secs
+            mp = _insert_drift_mapping(mat.node_tree, node)
+            if mp is not None:
+                _key(mp.inputs["Location"],
+                     [(1, (0.0, 0.0, 0.0)), (n_f, (-flow[0] * d, -flow[1] * d, 0.0))], "LINEAR")
+                moved.append(f"cloud shadows ({d:.0f} km)")
+
+    log("anim motion: " + ("; ".join(moved) if moved else "nothing to move"))
+
+
+def _animate_terrain_wetting(terrain, meta, keys, ease):
+    """Paint the flooded colormap in behind the advancing front.
+
+    flood_advance forces the DRY colormap onto the ground, so the merge's painted-in flood
+    isn't already lying there before the water arrives. The price is that the ground then
+    never wets at all: the sheet reads as cellophane over tan sediment, and the clip's final
+    frame no longer matches the published figure, whose bed carries the scour and the
+    braided channels the merge baked into colormap.png.
+
+    So BOTH colormaps are loaded and cross-faded per pixel by exactly the reveal the sheet
+    uses - corridor coverage (R) gated by the along-path coordinate (G) against the same
+    advance value. Behind the front the bed is the figure's; ahead of it, untouched
+    desiccated basin. Costs one extra full-size image in memory (see the mist's note on what
+    Blender does to those), which is why it only ever runs for this one animation type.
+    """
+    if terrain is None:
+        return
+    mat = terrain.active_material
+    if mat is None or not mat.use_nodes:
+        return
+    nt = mat.node_tree
+    dry = nt.nodes.get("terrain_albedo_tex")
+    wet_png = meta.get("colormap_png")
+    corr_png = FLOOD_CORRIDOR_PNG or meta.get("flood_corridor_png")
+    if dry is None or not wet_png or not corr_png:
+        log("anim: no dry/wet ground reveal (needs the photoreal albedo material + both maps)")
+        return
+    wet_path = os.path.join(DATA_DIR, wet_png)
+    corr_path = os.path.join(DATA_DIR, corr_png)
+    if not (os.path.isfile(wet_path) and os.path.isfile(corr_path)):
+        return
+
+    # check_existing: the corridor mask is already loaded by the flood sheet and the sea, and
+    # Blender expands every image to float RGBA - a third copy of a 6134x4533 mask is ~445 MB
+    wet = nt.nodes.new("ShaderNodeTexImage")
+    wet.image = bpy.data.images.load(wet_path, check_existing=True)
+    wet.extension = "EXTEND"
+    cimg = bpy.data.images.load(corr_path, check_existing=True)
+    try:
+        cimg.colorspace_settings.name = "Non-Color"
+    except Exception:
+        pass
+    ctex = nt.nodes.new("ShaderNodeTexImage")
+    ctex.image = cimg
+    ctex.extension = "EXTEND"
+    sep = nt.nodes.new("ShaderNodeSeparateColor")
+    nt.links.new(ctex.outputs["Color"], sep.inputs["Color"])
+
+    adv = nt.nodes.new("ShaderNodeValue")
+    adv.name = "terrain_advance_value"
+    sub = nt.nodes.new("ShaderNodeMath"); sub.operation = "SUBTRACT"
+    nt.links.new(adv.outputs[0], sub.inputs[0])
+    nt.links.new(sep.outputs["Green"], sub.inputs[1])
+    rev = nt.nodes.new("ShaderNodeMath"); rev.operation = "MULTIPLY"; rev.use_clamp = True
+    rev.inputs[1].default_value = 1.0 / max(FLOOD_FRONT_SOFTNESS, 1e-3)
+    nt.links.new(sub.outputs["Value"], rev.inputs[0])
+    fac = nt.nodes.new("ShaderNodeMath"); fac.operation = "MULTIPLY"; fac.use_clamp = True
+    nt.links.new(sep.outputs["Red"], fac.inputs[0])
+    nt.links.new(rev.outputs["Value"], fac.inputs[1])
+
+    mix = nt.nodes.new("ShaderNodeMixRGB")
+    mix.blend_type = "MIX"
+    # Snapshot the dry albedo's consumers BEFORE rewiring: the link collection is live, so
+    # relinking while iterating it would also catch the mix's own new input and feed the node
+    # to itself.
+    consumers = [l.to_socket for l in dry.outputs["Color"].links]
+    for sock in consumers:
+        nt.links.new(mix.outputs["Color"], sock)
+    nt.links.new(dry.outputs["Color"], mix.inputs["Color1"])
+    nt.links.new(wet.outputs["Color"], mix.inputs["Color2"])
+    nt.links.new(fac.outputs["Value"], mix.inputs["Fac"])
+
+    _key(adv.outputs[0], keys, ease)
+    log(f"anim: ground wets behind the front ({wet_png} over {len(consumers)} consumer(s))")
+
+
+def _png_size(path):
+    """(width, height) from a PNG's IHDR, without loading the pixels.
+
+    Parsed by hand rather than via bpy.data.images.load: this runs before the render and
+    must not add another multi-hundred-MB float image to a scene that already holds five.
+    """
+    try:
+        with open(path, "rb") as f:
+            head = f.read(24)
+        if head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
+            return None
+        return (int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big"))
+    except Exception:
+        return None
+
+
+def _check_resume_frames(anim_dir, lo, hi):
+    """Warn if frames already on disk were rendered at a different resolution.
+
+    ANIM_RESUME skips whatever is already there - which is exactly what makes a low-res test
+    run into the default ANIM_DIR dangerous: those frames get kept, the rest come out at full
+    size, and the mismatch only surfaces at encode time (video_gen skips odd-sized frames, so
+    the clip silently loses them). Cheap to detect here, expensive to discover on Monday.
+    """
+    for n in range(lo, hi + 1):
+        p = os.path.join(anim_dir, f"frame_{n:04d}.png")
+        if not os.path.isfile(p):
+            continue
+        size = _png_size(p)
+        if size and size != (RES_X, RES_Y):
+            print(f"  WARNING: {os.path.basename(p)} is {size[0]}x{size[1]}, this run is "
+                  f"{RES_X}x{RES_Y}.")
+            print("           ANIM_RESUME will KEEP it. Empty the anim folder, or point "
+                  "ANIM_DIR elsewhere.")
+            return False
+    return True
+
+
+def _anim_phase_frames():
+    """(hold_end, advance_end) in frames. The reveal must FINISH well before the clip does,
+    or the cascade at full discharge - the actual subject - is never seen running."""
+    hold = max(1.0, ANIM_HOLD_S * ANIM_FPS)
+    adv = hold + max(1.0, ANIM_ADVANCE_S * ANIM_FPS)
+    return min(hold, ANIM_FRAMES - 1), min(adv, ANIM_FRAMES)
+
+
+def setup_animation(scene, meta, ve, water, cam, target, flood_sheet=None,
+                    mist=None, clouds=None, terrain=None, width_km=1.0, height_km=1.0):
+    """Keyframe the flood, the camera and the scene motion; configure the frame output."""
+    scene.frame_start = max(1, int(ANIM_FRAME_START))
     scene.frame_end = ANIM_FRAMES
     scene.render.fps = ANIM_FPS
+    hold_f, adv_f = _anim_phase_frames()
+    ease = "BEZIER" if ANIM_ADVANCE_EASE else "LINEAR"
+
+    # Denoising + a FIXED seed. With the seed held constant the residual noise pattern is
+    # identical in every frame, so it reads as a static grain rather than boiling between
+    # frames - which is exactly the artefact that makes a low-sample Cycles clip look cheap.
+    try:
+        scene.cycles.use_denoising = bool(ANIM_DENOISE)
+        scene.cycles.use_animated_seed = False
+        scene.render.use_motion_blur = False     # nothing here moves in geometry, and a
+                                                 # science figure wants crisp frames anyway
+    except AttributeError:
+        pass
+    # PERSISTENT DATA: keep the synced scene and its BVH resident between frames instead of
+    # rebuilding them every time. This is exactly the case it exists for - NOTHING in this
+    # animation moves in geometry: the terrain and the flood sheet are displaced once, the
+    # camera never changes position (ANIM_CAMERA only touches the lens), and all the motion
+    # lives in shader values. Rebuilding a BVH over ~12 M quads plus five large images for
+    # every one of several hundred frames is pure repeated cost. It trades memory for it, so
+    # if a run dies with an allocation failure this is the first switch to turn off.
+    if ANIM_PERSISTENT_DATA:
+        try:
+            scene.render.use_persistent_data = True
+        except AttributeError:
+            pass
 
     if ANIM_TYPE in ("flood_rise", "flood_and_orbit") and water is not None:
         z0 = ve * FLOOD_RISE_FROM_M / 1000.0
@@ -2118,28 +2581,57 @@ def setup_animation(scene, meta, ve, water, cam, target, flood_sheet=None):
         pivot.rotation_euler = (0, 0, 0); pivot.keyframe_insert("rotation_euler", index=2, frame=1)
         pivot.rotation_euler = (0, 0, math.radians(360)); pivot.keyframe_insert("rotation_euler", index=2, frame=ANIM_FRAMES)
         # constant-speed orbit
-        if pivot.animation_data and pivot.animation_data.action:
-            for fc in pivot.animation_data.action.fcurves:
+        if pivot.animation_data:
+            for fc in _iter_fcurves(pivot.animation_data.action):
                 for kp in fc.keyframe_points:
                     kp.interpolation = "LINEAR"
-        log("anim: camera orbit 360 deg")
+        log("anim: camera orbit 360 deg (annotations/haze are NOT valid off-axis)")
+
     if ANIM_TYPE == "flood_advance" and flood_sheet is not None:
         mat = flood_sheet.active_material
         node = mat.node_tree.nodes.get("flood_advance_value") if mat else None
         if node is not None:
-            node.outputs[0].default_value = 0.0
-            node.outputs[0].keyframe_insert("default_value", frame=1)
-            node.outputs[0].default_value = 1.0
-            node.outputs[0].keyframe_insert("default_value", frame=ANIM_FRAMES)
-            ad = mat.node_tree.animation_data
-            if ad and ad.action:
-                for fc in ad.action.fcurves:
-                    for kp in fc.keyframe_points:
-                        kp.interpolation = "LINEAR"
-            log("anim: flood advances (corridor reveal 0 -> 1)")
+            a0 = float(ANIM_ADVANCE_FROM)
+            adv_keys = [(1, a0), (hold_f, a0), (adv_f, 1.0), (ANIM_FRAMES, 1.0)]
+            _key(node.outputs[0], adv_keys, ease)
+            log(f"anim: flood advances {a0:.2f} -> 1 over frames {hold_f:.0f}-{adv_f:.0f}, "
+                f"then {(ANIM_FRAMES - adv_f) / ANIM_FPS:.1f} s at full discharge")
+
+            # the ground wets in step with the sheet - same curve, same reveal maths
+            _animate_terrain_wetting(terrain, meta, adv_keys, ease)
+
+            # The spray plume and the sea's turbidity plume are CONSEQUENCES of the water
+            # arriving, so they cannot pre-date it. Both are held at zero and brought up as
+            # the front reaches the lip - the sediment plume trailing, because a basin's
+            # worth of suspended load takes time to spread into the Ionian.
+            lip_f = hold_f + 0.80 * (adv_f - hold_f)
+            if mist is not None:
+                mnode = (mist.active_material.node_tree.nodes.get("mist_density")
+                         if mist.active_material else None)
+                if mnode is not None:
+                    _key(mnode.inputs[1],
+                         [(1, 0.0), (lip_f, 0.0),
+                          (min(adv_f + 1.0 * ANIM_FPS, ANIM_FRAMES), float(MIST_DENSITY)),
+                          (ANIM_FRAMES, float(MIST_DENSITY))], "BEZIER")
+                    log("anim: spray plume builds with the cascade")
+            if water is not None and water.active_material:
+                pnode = water.active_material.node_tree.nodes.get("sea_plume_strength")
+                if pnode is not None:
+                    _key(pnode.inputs[1],
+                         [(1, 0.0), (lip_f, 0.0),
+                          (min(adv_f + 3.0 * ANIM_FPS, ANIM_FRAMES), float(SEA_PLUME_STRENGTH)),
+                          (ANIM_FRAMES, float(SEA_PLUME_STRENGTH))], "BEZIER")
+                    log("anim: sea turbidity plume builds after the plunge")
         else:
             log("anim: flood_advance requested but no flood sheet - falling back to a still hold")
 
+    if ANIM_CAMERA == "push" and cam is not None and ANIM_TYPE not in ("orbit", "flood_and_orbit"):
+        _key(_LensSock(cam.data), [(1, float(CAM_LENS_MM)), (ANIM_FRAMES, float(ANIM_PUSH_LENS_MM))],
+             "BEZIER")
+        log(f"anim: camera push {CAM_LENS_MM:.0f} -> {ANIM_PUSH_LENS_MM:.0f} mm")
+
+    animate_scene_motion(scene, meta, ve, width_km, height_km,
+                         water=water, flood_sheet=flood_sheet, mist=mist, clouds=clouds)
 
     anim_dir = ANIM_DIR or os.path.join(DATA_DIR, "anim")
     os.makedirs(anim_dir, exist_ok=True)
@@ -2155,7 +2647,38 @@ def setup_animation(scene, meta, ve, water, cam, target, flood_sheet=None):
     else:
         scene.render.image_settings.file_format = "PNG"
         scene.render.filepath = os.path.join(anim_dir, "frame_")
+        # Resume: skip frames already on disk. Blender only writes a frame's PNG once that
+        # frame is complete, so an interrupted run leaves no half-written file to skip over -
+        # which is also why use_placeholder stays OFF (placeholders are for splitting a job
+        # across machines, and here they would let a crashed frame be mistaken for a done one).
+        try:
+            scene.render.use_overwrite = not ANIM_RESUME
+            scene.render.use_placeholder = False
+        except AttributeError:
+            pass
     log(f"anim: {ANIM_FRAMES} frames @ {ANIM_FPS} fps -> {scene.render.filepath}")
+
+
+class _LensSock:
+    """Adapter that lets _key() drive camera.data.lens, which is a plain property rather than
+    a node socket (same keyframe_insert/path_from_id contract, different attribute name)."""
+    def __init__(self, cam_data):
+        self._d = cam_data
+        self.id_data = cam_data
+
+    @property
+    def default_value(self):
+        return self._d.lens
+
+    @default_value.setter
+    def default_value(self, v):
+        self._d.lens = float(v)
+
+    def keyframe_insert(self, _prop, frame=1):
+        self._d.keyframe_insert("lens", frame=frame)
+
+    def path_from_id(self, _prop):
+        return "lens"
 
 
 def _render_anim_with_progress(n_frames, anim_dir):
@@ -2221,6 +2744,8 @@ def main():
         warnings.filterwarnings("ignore", category=DeprecationWarning)
     if not os.path.isdir(DATA_DIR):
         raise FileNotFoundError(f"DATA_DIR not found: {DATA_DIR} (edit the CONFIG block)")
+    if ANIMATE:
+        _apply_anim_overrides()          # must precede the build - see its docstring
     meta = load_meta()
 
     bar = _Bar(10)
@@ -2229,14 +2754,19 @@ def main():
     terrain, ve, wkm, hkm = make_terrain(meta);     bar.step("terrain")
     water = make_water(meta, ve, wkm, hkm);         bar.step("water")
     flood_sheet = make_flood_sheet(meta, ve, wkm, hkm); bar.step("flood")
-    make_plunge_mist(meta, ve, wkm, hkm);           bar.step("mist")
+    mist = make_plunge_mist(meta, ve, wkm, hkm);    bar.step("mist")
     make_sun();                                     bar.step("sun")
-    make_cloud_shadows(ve, wkm, hkm)
+    clouds = make_cloud_shadows(ve, wkm, hkm)
     make_world();                                   bar.step("world")
     cam, target = make_camera(meta, ve, wkm, hkm);  bar.step("camera")
     # depsgraph must catch up on the camera's TRACK_TO constraint before matrix_world (and
     # therefore world_to_camera_view / the annotation billboarding below) is trustworthy.
     bpy.context.view_layer.update()
+    if ANIMATE and ANIM_CAMERA == "push":
+        # Build the HUD compass at the FINAL, tightest lens: it is placed at a fixed screen
+        # fraction of the frustum, so sizing it for the wide start would walk it out of frame
+        # as the push closes in. Sized for the end it only ever sits further into the corner.
+        cam.data.lens = float(ANIM_PUSH_LENS_MM)
     annot_mat = make_annotation_material()
     make_scale_bars(meta, ve, wkm, hkm, cam, annot_mat)   # after the camera - see its docstring
     make_geo_labels(meta, ve, wkm, hkm, cam, annot_mat)
@@ -2252,9 +2782,25 @@ def main():
 
     if ANIMATE:
         anim_dir = ANIM_DIR or os.path.join(DATA_DIR, "anim")
-        setup_animation(bpy.context.scene, meta, ve, water, cam, target, flood_sheet)
-        print(f"  rendering {ANIM_FRAMES} frames  [{ANIM_TYPE}  {SAMPLES} spp  {ANIM_FPS} fps]")
-        _render_anim_with_progress(ANIM_FRAMES, anim_dir)
+        setup_animation(bpy.context.scene, meta, ve, water, cam, target, flood_sheet,
+                        mist=mist, clouds=clouds, terrain=terrain,
+                        width_km=wkm, height_km=hkm)
+        lo, hi = int(ANIM_FRAME_START), int(ANIM_FRAMES)
+        todo = hi - lo + 1
+        # On a resume Blender skips frames already on disk WITHOUT firing render_post, so a
+        # bar sized to the full range would sit at 3/600 and quote a nonsense ETA. Count what
+        # is already there and size the bar to what will actually be rendered.
+        done = 0
+        if ANIM_RESUME and ANIM_FORMAT.upper() != "MP4":
+            _check_resume_frames(anim_dir, lo, hi)
+            done = sum(1 for n in range(lo, hi + 1)
+                       if os.path.isfile(os.path.join(anim_dir, f"frame_{n:04d}.png")))
+            todo = max(todo - done, 1)
+        print(f"  rendering {todo} frames  [{ANIM_TYPE}  {ANIM_SECONDS:.0f} s @ {ANIM_FPS} fps  "
+              f"{SAMPLES} spp"
+              + (f"  resuming, {done} already done]" if done else
+                 f"  {'resume on' if ANIM_RESUME else 'resume off'}]"))
+        _render_anim_with_progress(todo, anim_dir)
         print(f"  animation done  →  {anim_dir}")
     else:
         print(f"  rendering still  [{SAMPLES} spp] …")

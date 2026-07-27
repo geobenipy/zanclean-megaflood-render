@@ -21,21 +21,34 @@ from tqdm import tqdm
 # PARAMETERS
 # =============================================================================
 
+# Where render_waterfall.py's ANIM_DIR wrote the frames (its default is DATA_DIR/anim).
 INPUT_FOLDER = Path(
-    r"output\anim"
+    r"."
+    r"\output_overview_old\output_overview\anim"
 )
 
-OUTPUT_VIDEO = INPUT_FOLDER / "animation.mp4"
+OUTPUT_VIDEO = INPUT_FOLDER / "zanclean_flood.mp4"
 
-FPS = 30
+FPS = 25                    # must match ANIM_FPS in render_waterfall.py, or the clip's
+                            # timing (the hold, the advance) is not what was keyframed
 
-# H.264 quality: lower = bigger/better (18 = visually lossless, 23 = default, 28 = small)
-CRF = 18
+# H.264 quality: lower = bigger/better (18 = visually lossless, 23 = default, 28 = small).
+# Keep this near-lossless: journals re-encode on ingest, and compressing twice at 23 turns
+# the cascade's fine whitewater into mush.
+CRF = 16
 
 # Encoding speed/quality trade-off (slower = better compression at same CRF)
 PRESET = "slow"
 
 OVERWRITE = True
+
+# H.264 profile. NOT "baseline": it forbids CABAC and the 8x8 transform, which costs real
+# quality at a given size, and it only ever existed for 2010-era mobile decoders.
+PROFILE = "high"
+
+# Warn if the sequence has gaps. ANIM_RESUME lets an interrupted render be restarted, and a
+# frame that never got written would otherwise be encoded as a silent jump cut.
+CHECK_SEQUENCE = True
 
 IMAGE_EXTENSIONS = ("*.png", "*.jpg", "*.jpeg", "*.tif", "*.tiff", "*.bmp")
 
@@ -46,13 +59,16 @@ IMAGE_EXTENSIONS = ("*.png", "*.jpg", "*.jpeg", "*.tif", "*.tiff", "*.bmp")
 
 LOG_FILE = INPUT_FOLDER / "video_generation.log"
 
+_handlers = [logging.StreamHandler()]
+if INPUT_FOLDER.is_dir():
+    # only attach the file handler if the folder is really there - otherwise basicConfig
+    # raises at import time and hides the readable "input folder not found" from main()
+    _handlers.append(logging.FileHandler(LOG_FILE, mode="w", encoding="utf-8"))
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)-8s | %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(LOG_FILE, mode="w", encoding="utf-8"),
-    ],
+    handlers=_handlers,
 )
 logger = logging.getLogger(__name__)
 
@@ -72,16 +88,49 @@ def collect_images(folder: Path):
     return sorted(imgs, key=natural_sort_key)
 
 
+def check_sequence(images):
+    """Report gaps and empty frames before spending an encode on them.
+
+    Blender names frames frame_0001.png…; a resumed render (ANIM_RESUME) can leave a hole if
+    a frame died mid-write or the run was stopped between two frames. Concatenating over the
+    hole produces a jump cut that is very easy to miss on a first viewing and impossible to
+    explain in a caption.
+    """
+    nums = []
+    for p in images:
+        m = re.search(r"(\d+)$", p.stem)
+        if m:
+            nums.append((int(m.group(1)), p))
+    if not nums:
+        logger.info("  frames are not numbered - skipping the sequence check")
+        return
+    nums.sort()
+    lo, hi = nums[0][0], nums[-1][0]
+    have = {n for n, _ in nums}
+    missing = [n for n in range(lo, hi + 1) if n not in have]
+    empty = [p.name for _, p in nums if p.stat().st_size == 0]
+    if missing:
+        logger.warning(f"  MISSING {len(missing)} frame(s) in {lo}..{hi}: "
+                       f"{missing[:12]}{' …' if len(missing) > 12 else ''}")
+        logger.warning("  re-run the render with the same settings - ANIM_RESUME fills the holes")
+    if empty:
+        logger.warning(f"  EMPTY (0-byte) frame(s): {empty[:12]}")
+    if not missing and not empty:
+        logger.info(f"  sequence OK: {lo}..{hi}, no gaps")
+
+
 def _encode_imageio(images, output, fps, crf, preset):
     """Encode via imageio.v2 (stable legacy API, works with imageio-ffmpeg)."""
+    # pixelformat goes through imageio's own argument, NOT ffmpeg_params: imageio always
+    # emits a -pix_fmt of its own, so passing a second one just makes ffmpeg warn about
+    # duplicate options
     ffmpeg_params = [
         "-preset", preset,
         "-crf", str(crf),
-        "-pix_fmt", "yuv420p",
-        "-profile:v", "baseline",
+        "-profile:v", PROFILE,
         "-movflags", "+faststart",
     ]
-    writer = iio.get_writer(str(output), fps=fps, codec="libx264",
+    writer = iio.get_writer(str(output), fps=fps, codec="libx264", pixelformat="yuv420p",
                             format="ffmpeg", ffmpeg_params=ffmpeg_params)
     first_shape = None
     skipped = 0
@@ -119,7 +168,7 @@ def _encode_subprocess(images, output, fps, crf, preset):
         "-preset", preset,
         "-crf", str(crf),
         "-pix_fmt", "yuv420p",
-        "-profile:v", "baseline",
+        "-profile:v", PROFILE,
         "-movflags", "+faststart",
         str(output),
     ]
@@ -156,7 +205,9 @@ def main():
     if not images:
         raise RuntimeError("No images found in input folder.")
 
-    logger.info(f"  frames : {len(images):,}")
+    logger.info(f"  frames : {len(images):,}  ({len(images) / FPS:.1f} s at {FPS} fps)")
+    if CHECK_SEQUENCE:
+        check_sequence(images)
 
     if OUTPUT_VIDEO.exists() and OVERWRITE:
         OUTPUT_VIDEO.unlink()
