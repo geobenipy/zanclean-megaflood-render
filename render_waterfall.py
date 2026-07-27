@@ -40,8 +40,8 @@ from mathutils import Vector, Matrix
 # =====================================================================
 # CONFIG
 # =====================================================================
-DATA_DIR   = r"output_overview"
-OUTPUT_PNG = r"output_overview\render_waterfall_v16.png"
+DATA_DIR   = r"output_overview_old\output_overview"
+OUTPUT_PNG = r"output_overview_old\output_overview\render_waterfall_v16.png"
 
 # --- console ---
 QUIET = True                         # clean output: one progress bar + summary. False = verbose debug logs
