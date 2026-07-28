@@ -545,7 +545,10 @@ CAM_TARGET_OFFSET_KM = (14.0, -9.0)  # regional overview: recentred onto the esc
 # per frame. (The CASCADE RELIEF is deliberately NOT advected: those are STANDING waves in a
 # chute and standing waves do not travel with the current. Sliding that map would also drag
 # the rollers off the chute and onto the flats the merge's gate exists to keep smooth.)
-ANIMATE     = False                 # render an image sequence instead of a single still
+ANIMATE     = True                  # render an image sequence instead of a single still. ON on
+                                    # this branch, OFF on main: that is the whole difference
+                                    # between the two, so `blender -b -P render_waterfall.py`
+                                    # does the right thing on either without an edit first.
 ANIM_TYPE   = "flood_advance"       # "flood_advance" | "flood_rise" | "orbit" | "flood_and_orbit"
                                     # flood_advance = the corridor reveals source->lip: the
                                     # megaflood visibly rolls in and hits the falls (this is the
