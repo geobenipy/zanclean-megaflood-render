@@ -50,6 +50,22 @@ PROFILE = "high"
 # frame that never got written would otherwise be encoded as a silent jump cut.
 CHECK_SEQUENCE = True
 
+# A SECOND, size-capped file for submission. Nature allows at most 30 MB per supplementary
+# video, and a CRF-16 master of a 30 s cascade goes well past that - CRF is a quality target,
+# it makes no promise at all about size. So the master above stays near-lossless (it is the
+# archival copy, and the one to re-encode from if the journal asks for another format), and
+# this writes `<name>_SI.mp4` at a bitrate computed from the clip's own length so it lands
+# under the limit. Two-pass, because a one-pass average is only an average: it overshoots on
+# exactly the passage that matters here, the plunge at full discharge.
+# Set to None to skip the second file.
+SI_MAX_MB = 30
+SI_SAFETY = 0.93            # aim this fraction of the limit - container overhead, and a file
+                            # that lands at 30.4 MB is as rejected as one at 60
+SI_MIN_KBPS = 2000          # below this the water breaks up into blocks; if the target falls
+                            # under it the clip is too long for the limit, and the honest fix
+                            # is a shorter clip, not a worse one. Warned about, not silently
+                            # accepted.
+
 IMAGE_EXTENSIONS = ("*.png", "*.jpg", "*.jpeg", "*.tif", "*.tiff", "*.bmp")
 
 
@@ -152,18 +168,63 @@ def _encode_imageio(images, output, fps, crf, preset):
     return skipped
 
 
-def _encode_subprocess(images, output, fps, crf, preset):
-    """Encode via ffmpeg subprocess (fallback; ffmpeg must be on PATH)."""
-    # Write a concat list file so frame ordering/naming doesn't matter
+def _ffmpeg_exe():
+    """Path to an ffmpeg binary.
+
+    Plain "ffmpeg" is NOT on PATH on this machine - imageio-ffmpeg ships its own and that is
+    what the primary encoder has been using all along. Hard-coding the bare name meant the
+    fallback path could only ever fail with FileNotFoundError, i.e. the fallback was not one.
+    """
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
+
+
+def _concat_list(images):
+    """A concat-demuxer list file, so frame naming/ordering doesn't matter."""
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as f:
         for p in images:
             f.write(f"file '{str(p).replace(chr(92), '/')}'\n")
-        list_path = f.name
+        return f.name
 
+
+def _input_args(images, fps):
+    """ffmpeg input arguments for the sequence, plus a temp file to delete afterwards.
+
+    Prefers the image2 demuxer over a concat list. The concat demuxer has no notion of frame
+    duration for stills, so it emits garbage timestamps ("PTS -230584300921369 invalid
+    dropping", thousands of lines) and ffmpeg has to reconstruct the timing; image2 with
+    -framerate gets it right by construction. Blender always writes frame_NNNN.png, so the
+    fast path is the normal one - the concat fallback is there for a hand-assembled folder.
+    """
+    stems = [p.stem for p in images]
+    m = [re.match(r"^(.*?)(\d+)$", s) for s in stems]
+    if all(m) and len({x.group(1) for x in m}) == 1 and len({len(x.group(2)) for x in m}) == 1:
+        nums = [int(x.group(2)) for x in m]
+        if nums == list(range(nums[0], nums[0] + len(nums))):
+            prefix, width = m[0].group(1), len(m[0].group(2))
+            pattern = str(images[0].parent / f"{prefix}%0{width}d{images[0].suffix}")
+            return (["-framerate", str(fps), "-start_number", str(nums[0]), "-i", pattern],
+                    None)
+    list_path = _concat_list(images)
+    return ["-f", "concat", "-safe", "0", "-r", str(fps), "-i", list_path], list_path
+
+
+def _run_ffmpeg(cmd):
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        logger.error(f"ffmpeg stderr:\n{result.stderr[-3000:]}")
+        raise RuntimeError(f"ffmpeg exited {result.returncode}")
+
+
+def _encode_subprocess(images, output, fps, crf, preset):
+    """Encode via ffmpeg subprocess (fallback for the imageio path)."""
+    in_args, list_path = _input_args(images, fps)
     cmd = [
-        "ffmpeg", "-y",
-        "-f", "concat", "-safe", "0", "-r", str(fps),
-        "-i", list_path,
+        _ffmpeg_exe(), "-y",
+        *in_args,
         "-c:v", "libx264",
         "-preset", preset,
         "-crf", str(crf),
@@ -173,15 +234,58 @@ def _encode_subprocess(images, output, fps, crf, preset):
         str(output),
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            logger.error(f"ffmpeg stderr:\n{result.stderr[-3000:]}")
-            raise RuntimeError(f"ffmpeg exited {result.returncode}")
+        _run_ffmpeg(cmd)
     finally:
-        try:
-            os.unlink(list_path)
-        except OSError:
-            pass
+        if list_path:
+            try:
+                os.unlink(list_path)
+            except OSError:
+                pass
+
+
+def _encode_size_capped(images, output, fps, preset, max_mb, safety=SI_SAFETY):
+    """Two-pass ABR encode aimed at `max_mb` megabytes. Returns the achieved size in MB.
+
+    Encoded from the PNGs, not transcoded from the master: the master is already lossy, and
+    re-compressing its artefacts is strictly worse than compressing the original frames once.
+    """
+    duration = max(len(images) / float(fps), 1e-6)
+    kbps = int((max_mb * safety * 8 * 1000 * 1000) / duration / 1000)
+    if kbps < SI_MIN_KBPS:
+        logger.warning(f"  {max_mb} MB over {duration:.1f} s leaves only {kbps} kbit/s - "
+                       f"below the {SI_MIN_KBPS} kbit/s floor where moving water starts to "
+                       f"block up. Shorten the clip rather than ship this.")
+    logger.info(f"  SI copy: {duration:.1f} s at {kbps} kbit/s  -> target ~{max_mb * safety:.0f} MB")
+
+    in_args, list_path = _input_args(images, fps)
+    # x264's two-pass state goes in a log file next to the output, not in the temp dir, so a
+    # failed run leaves it where it can be seen rather than silently in %TEMP%.
+    passlog = str(Path(output).with_suffix("")) + "_2pass"
+    common = [
+        _ffmpeg_exe(), "-y",
+        *in_args,
+        "-c:v", "libx264",
+        "-preset", preset,
+        "-b:v", f"{kbps}k",
+        "-pix_fmt", "yuv420p",
+        "-profile:v", PROFILE,
+        "-passlogfile", passlog,
+    ]
+    try:
+        _run_ffmpeg(common + ["-pass", "1", "-an", "-f", "mp4", os.devnull])
+        _run_ffmpeg(common + ["-pass", "2", "-movflags", "+faststart", str(output)])
+    finally:
+        if list_path:
+            try:
+                os.unlink(list_path)
+            except OSError:
+                pass
+        for suffix in ("-0.log", "-0.log.mbtree", ".log", ".log.mbtree"):
+            try:
+                os.unlink(passlog + suffix)
+            except OSError:
+                pass
+    return Path(output).stat().st_size / 1e6
 
 
 # =============================================================================
@@ -233,10 +337,28 @@ def main():
             logger.error(f"subprocess encoding also failed: {e2}")
             raise
 
+    master_mb = OUTPUT_VIDEO.stat().st_size / 1e6
+    logger.info(f"  master : {master_mb:.1f} MB")
+
+    si_path = None
+    if SI_MAX_MB:
+        si_path = OUTPUT_VIDEO.with_name(OUTPUT_VIDEO.stem + "_SI.mp4")
+        if master_mb <= SI_MAX_MB * SI_SAFETY:
+            logger.info(f"  master already fits {SI_MAX_MB} MB - no separate SI copy needed")
+            si_path = None
+        else:
+            si_mb = _encode_size_capped(images, si_path, FPS, PRESET, SI_MAX_MB)
+            logger.info(f"  SI     : {si_mb:.1f} MB  ({si_path.name})")
+            if si_mb > SI_MAX_MB:
+                logger.warning(f"  SI copy is {si_mb:.1f} MB, OVER the {SI_MAX_MB} MB limit - "
+                               f"lower SI_SAFETY and re-run")
+
     dt = time.perf_counter() - t0
     logger.info("=" * 60)
     logger.info(f"  done in {dt:.1f} s  |  skipped {skipped} frames")
     logger.info(f"  saved  : {OUTPUT_VIDEO}")
+    if si_path:
+        logger.info(f"           {si_path}  <- submit this one")
     logger.info("=" * 60)
 
 

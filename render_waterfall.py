@@ -555,7 +555,12 @@ ANIM_TYPE   = "flood_advance"       # "flood_advance" | "flood_rise" | "orbit" |
                                     # sun, the haze ramp, the CLOUD_CLEAR_KM zones and every
                                     # annotation placement - drafts only, never a submission.
 ANIM_FPS     = 25                   # 25 fps is the usual rate for a journal SI video
-ANIM_SECONDS = 24.0                 # clip length; ANIM_FRAMES follows from it
+ANIM_SECONDS = 30.0                 # clip length; ANIM_FRAMES follows from it. Longer is NOT
+                                    # automatically better even with time to spare: Nature caps
+                                    # a supplementary video at 30 MB, so every extra second is
+                                    # paid for in bitrate by every other second. 30 s at 30 MB
+                                    # is ~8 Mbit/s, which holds up on moving water; a 60 s clip
+                                    # of the same file size would visibly break up.
 ANIM_FRAMES  = int(round(ANIM_SECONDS * ANIM_FPS))
 ANIM_FORMAT  = "PNG"                # "PNG" (frame sequence -> video_gen.py) | "MP4" (Blender's
                                     # own FFmpeg). Use PNG: a multi-hour run that dies at frame
@@ -570,23 +575,37 @@ FLOOD_RISE_FROM_M = -3500.0         # flood_rise: start level (deep) -> rises to
 # animation only. SUBDIVISIONS is deliberately NOT reduced: the mesh is built ONCE and then
 # reused by every frame, so its cost is a one-off, while dropping it would round the cascade
 # rollers back into pillows - which is the whole point of CASCADE_RELIEF.
-ANIM_RES_X, ANIM_RES_Y = 1920, 1280  # 3:2, i.e. the figure's exact framing, and within the
-                                     # 1920-px cap most journals put on supplementary video
-ANIM_SAMPLES        = 64             # MEASURED, not guessed. Frame 450 was rendered at 96 and
+ANIM_RES_X, ANIM_RES_Y = 1920, 1280  # 3:2, i.e. the figure's exact framing. Do NOT raise this
+                                     # to spend a bigger time budget - it is the wrong place to
+                                     # put it, for two reasons that have nothing to do with the
+                                     # renderer. Nature caps a supplementary video at 30 MB, so
+                                     # more pixels are spent at a LOWER bitrate per pixel, and
+                                     # the H.264 blocking that buys is far more visible than the
+                                     # sharpness gained. And it is not cheap: 2304x1536 was
+                                     # measured at ~1.45x the cost per frame, i.e. exactly its
+                                     # pixel ratio. Nature also asks for 16:9 (4:3 second best),
+                                     # which 3:2 is not - matching the printed figure's framing
+                                     # was judged worth more than matching that preference, but
+                                     # it is a deliberate choice, not an oversight.
+ANIM_SAMPLES        = 96             # MEASURED, not guessed. Frame 450 was rendered at 96 and
                                      # at 64 spp and compared 1:1 at the cascade - where the
                                      # spray volume makes noise most likely - and the two are
-                                     # indistinguishable: the denoiser carries it. 64 costs
-                                     # 4.3 min/frame against 7.6, i.e. it is what turns a
-                                     # ~70 h run into a ~39 h one. Samples are the right thing
-                                     # to cut here, NOT resolution: nobody can see the samples,
-                                     # everybody can see the pixels. Going below ~48 starts to
-                                     # risk frame-to-frame denoiser flicker, which is far more
-                                     # objectionable in motion than static noise ever is.
+                                     # indistinguishable: the denoiser carries it. 64 was what a
+                                     # weekend budget could afford; with a week the margin is
+                                     # free, so this sits one step above the point where the
+                                     # difference stopped being visible rather than exactly on
+                                     # it. Going below ~48 starts to risk frame-to-frame
+                                     # denoiser flicker, which is far more objectionable in
+                                     # motion than static noise ever is. Above ~96 there is
+                                     # nothing left to buy - see ANIM_RES_* for why the spare
+                                     # time should not go into pixels either.
 ANIM_DENOISE        = True
-ANIM_MIST_STEP_RATE = 1.0            # coarser volume steps than the still's 0.5. Residual
-                                     # volume noise that would be obvious in a frozen frame is
-                                     # invisible once the plume is billowing, and the spray box
-                                     # is the single most expensive thing in the scene.
+ANIM_MIST_STEP_RATE = 0.5            # the still's value. It was raised to 1.0 (coarser volume
+                                     # steps) purely to fit a weekend; the spray box is the most
+                                     # expensive thing in the scene, so it was the first thing
+                                     # to cut. Measured at 96 spp / 1920x1280 the fine steps
+                                     # cost 6.3 min/frame all in - a 30 s clip in ~79 h - so the
+                                     # compromise is not worth keeping.
 ANIM_PERSISTENT_DATA = False         # keep the synced scene + BVH between frames instead of
                                      # rebuilding them. It LOOKS like the obvious win here -
                                      # nothing in this animation moves in geometry - but it was
@@ -609,8 +628,11 @@ ANIM_FRAME_START = 1                 # or set by hand to restart at a known-bad 
 #   [0 .. HOLD]                 desiccated basin, calm sea: establishes the "before"
 #   [HOLD .. HOLD+ADVANCE]      the torrent crosses the basin and goes over the lip
 #   [.. end]                    full discharge: the cascade runs and the spray plume builds
-ANIM_HOLD_S       = 2.5
-ANIM_ADVANCE_S    = 11.0             # the remainder of the clip is the cascade at full flow
+ANIM_HOLD_S       = 3.0
+ANIM_ADVANCE_S    = 12.0             # the remainder of the clip is the cascade at full flow -
+                                     # 15 s of it at ANIM_SECONDS 30, which is where the extra
+                                     # length went. The reveal did not need to be slower; the
+                                     # subject needed longer on screen.
 ANIM_ADVANCE_EASE = True             # smooth start/stop instead of a mechanical linear ramp
 ANIM_ADVANCE_FROM = 0.55             # the reveal starts HERE, not at 0. The corridor's
                                      # along-path coordinate is normalised over the WHOLE
