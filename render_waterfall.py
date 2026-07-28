@@ -41,7 +41,10 @@ from mathutils import Vector, Matrix
 # CONFIG
 # =====================================================================
 DATA_DIR   = r"output_overview_old\output_overview"
-OUTPUT_PNG = r"output_overview_old\output_overview\render_waterfall_v16.png"
+OUTPUT_PNG = r"output_final\render_waterfall_v18.png"
+                                     # the submitted Fig-3b panel. The Extended-Data twin is
+                                     # the same run with SHOW_WATER / SHOW_FLOOD_SHEET /
+                                     # PLUNGE_MIST off and colormap_dry_png as the ground.
 
 # --- console ---
 QUIET = True                         # clean output: one progress bar + summary. False = verbose debug logs
@@ -250,24 +253,76 @@ SCALE_VERTICAL_OFFSET_KM = 2.0      # sideways (north, +Y) shift off the corrido
 SCALE_HORIZONTAL_X_M   = 519500.0   # near the rim crest, just upstream of the canyon head
 SCALE_HORIZONTAL_Y_RANGE_M = (4068800.0, 4086300.0)
 SCALE_HORIZONTAL_Z_M   = -221.8     # rim elevation - reads the width at the TOP of the fall
-SCALE_DASH_KM       = 0.7
-SCALE_GAP_KM        = 0.4
-SCALE_THICKNESS_KM  = 0.12
-SCALE_TICK_KM       = 1.4           # end-cap tick length (perpendicular to the bar)
+# Sizes are set for the PRINTED figure, not for the 4800 px master. At 180 mm double-column
+# width the master is ~27 px/mm, so the old 2 km label came out ~1.4 mm cap height - about
+# 4 pt, below the 5-7 pt floor most journals set, and visibly smaller than panel (a)'s
+# annotations sitting right above it. Everything here is ~2.5x the first pass.
+SCALE_DASH_KM       = 1.6
+SCALE_GAP_KM        = 0.8
+SCALE_THICKNESS_KM  = 0.32
+SCALE_TICK_KM       = 3.0           # end-cap tick length (perpendicular to the bar)
+# ...but both of the above are the values for a LONG bar. The two bars differ threefold - the
+# amphitheatre is 17.5 km wide, the drop is 2.0 km which at VE 3 is ~6 km of scene - and sized
+# for the long one the short one came out as three stubs between two ticks half its own length.
+# So each bar shrinks its own dashes to show at least SCALE_DASH_MIN_COUNT of them, and caps
+# its ticks at a fraction of its length. Both bars keep the same line WEIGHT (thickness), which
+# is what makes them read as one instrument.
+SCALE_DASH_MIN_COUNT = 4.0          # fewest dashes a bar may show before they shrink to fit.
+                                     # Keep it LOW: each dash carries its own halo outline, so
+                                     # squeezing more of them onto the short vertical bar turns
+                                     # it into a string of beads instead of a dashed line.
+SCALE_TICK_MAX_FRAC  = 0.30         # end tick never exceeds this fraction of the bar length
 SCALE_CAMERA_PULL_KM = 3.0          # pull the bars toward the camera along the actual view ray
                                      # so they float clear of intervening terrain (needs
                                      # make_camera() to have already run - see main())
-SCALE_COLOR         = (0.04, 0.035, 0.03, 1.0)  # dark charcoal ink: reads against the foam,
-                                     # the blue water AND the tan rock alike - a pale bar has
-                                     # ~zero contrast against the cascade's whitewater
+SCALE_COLOR         = (0.03, 0.028, 0.025, 1.0)  # near-black ink. It reads against the foam,
+                                     # the blue water and the tan sill - but NOT against the
+                                     # shaded escarpment face, which is where the vertical bar
+                                     # necessarily stands. That is what ANNOT_HALO is for.
+
+# --- annotation halo: the one thing that makes dark ink survive a dark background -----------
+# The vertical bar has to stand at the cascade, and the cascade is a shaded rock face, so on
+# the desiccated (Extended Data) render it was dark grey ink on a dark grey slope and all but
+# vanished. Making it bigger and blacker does not help: the problem is contrast, not size.
+# So every annotation gets a pale outline drawn slightly BEHIND it along the view ray - the
+# standard cartographic halo. Text is fattened with the font curve's own outline offset (an
+# exact glyph outset, not a scaled copy); bars are rebuilt a little thicker and longer.
+ANNOT_HALO          = True
+ANNOT_HALO_COLOR    = (0.96, 0.955, 0.94, 1.0)   # warm off-white, not pure white: pure white
+                                     # blooms against the AGX highlight rolloff on the sill
+# The outsets are FRACTIONS of the thing being outlined, never absolute km. An absolute value
+# cannot work here because the annotation layer spans two wildly different scales: the place
+# names are kilometres tall while the north arrow's "N" is ~25 m tall on a HUD 5 km from the
+# lens. A single 0.14 km outset drew a proportionate halo on the labels and turned the "N"
+# into a solid white box and the arrow into a double-line outline drawing.
+ANNOT_HALO_TEXT_FRAC = 0.028        # glyph outset as a fraction of the text height. Much more
+                                     # and the counters of "~2.0" close up into blobs.
+ANNOT_HALO_BAR_FRAC  = 0.5          # bar/arrow outset as a fraction of its own thickness
+ANNOT_HALO_DEPTH_FRAC = 0.0015      # push behind the ink, as a fraction of the annotation's
+                                     # distance from the camera - so it scales for the 448 km
+                                     # scale bars and the 5 km HUD alike. Purely to avoid
+                                     # z-fighting; the outset above is what you actually see.
+                                     # It must stay well BELOW ANNOT_HALO_TEXT_FRAC: pushing
+                                     # the halo back also shrinks it in perspective by the same
+                                     # fraction, so a depth larger than the outset makes the
+                                     # halo smaller than the ink and it vanishes behind it
+                                     # entirely. At 0.0015 the shrink is 0.15 % against a 2.8 %
+                                     # outset, while still leaving 0.7 km of clearance at the
+                                     # scale bars and ~8 m at the HUD compass.
 
 # --- scale bar km labels: a bare dashed stick reads as decoration without a number next to
 # it. Values are NOT re-measured here - they reuse the exact drop_m/width_m this function
 # already computes from the measured waypoints above, so the label can never drift out of
 # sync with the geometry it labels.
 SCALE_LABELS         = True
-SCALE_LABEL_HEIGHT_KM = 2
-SCALE_LABEL_GAP_KM   = 1.0          # clears the tick end before the text starts
+SCALE_LABEL_HEIGHT_KM = 4.8         # was 2, which printed at roughly 4 pt - see the size note
+                                     # above the dash settings
+SCALE_LABEL_GAP_KM   = 1.4          # a TRUE gap between the tick end and the nearest ink of
+                                     # the text. The label is centred and then slid clear by
+                                     # its own measured half-width (see _clear_label), so this
+                                     # no longer has to be guessed against the string length -
+                                     # which is how the bar previously ran through its own
+                                     # number when the text grew.
 SCALE_VERTICAL_LABEL   = None       # None = auto "~{drop_m/1000:.1f} km"; string overrides
 SCALE_HORIZONTAL_LABEL = "~20 km"   # the manuscript's own wording ("more than 20 km wide"),
                                      # not the bar's own ~17.5 km straight-chord length -
@@ -289,7 +344,9 @@ SCALE_HORIZONTAL_LABEL = "~20 km"   # the manuscript's own wording ("more than 2
 # is explicit that only the Noto Canyon - not the Malta Escarpment generally - carries
 # megaflood evidence, so naming the escarpment risks implying the wrong thing.
 GEO_LABELS = True
-GEO_LABEL_HEIGHT_KM      = 2.6
+GEO_LABEL_HEIGHT_KM      = 3.6      # kept a step BELOW the scale labels: the place-names are
+                                     # orientation, the scale bars carry the measurement, and
+                                     # the figure should say which of the two matters more
 GEO_LABEL_LIFT_KM        = 0.6      # float above the terrain surface (avoid z-fighting)
 GEO_LABEL_CAMERA_PULL_KM = 3.0      # same trick as the scale bars - guarantees the label
                                      # floats clear of intervening terrain on this sightline
@@ -314,8 +371,10 @@ NORTH_ARROW = True
 NORTH_ARROW_DIST_KM       = 5.0     # HUD distance in front of the lens (km)
 NORTH_ARROW_MARGIN_X_FRAC = 0.90    # corner position, as a fraction of the half-frame WIDTH
 NORTH_ARROW_MARGIN_Y_FRAC = 0.97    # ...and HEIGHT, at that distance
-NORTH_ARROW_LEN_FRAC    = 0.14      # total shaft+head length, as a fraction of the HUD
-                                     # half-frame HEIGHT - reads as a small corner icon
+NORTH_ARROW_LEN_FRAC    = 0.20      # total shaft+head length, as a fraction of the HUD
+                                     # half-frame HEIGHT - reads as a small corner icon. Still
+                                     # an icon, but the 0.14 version printed at ~3 mm and its
+                                     # "N" was the smallest mark in the whole figure.
 NORTH_ARROW_HEAD_FRAC   = 0.32      # arrowhead length as a fraction of the total length
 NORTH_ARROW_THICK_FRAC  = 0.10      # shaft thickness as a fraction of the total length
 NORTH_ARROW_LABEL_FRAC  = 0.34      # "N" cap height as a fraction of the total length
@@ -1706,6 +1765,67 @@ def make_annotation_material():
     return mat
 
 
+def make_halo_material():
+    """Pale outline material drawn behind the ink - see ANNOT_HALO in the CONFIG block.
+
+    Mostly emissive on purpose. A halo that is merely a light *diffuse* surface still goes
+    dark wherever the scene's own light does, which is precisely the shaded escarpment face
+    the halo exists to survive; it would fade out exactly where it is needed. Emission makes
+    it independent of the sun, so the outline is as bright on the shadowed cliff as on the
+    sunlit sill.
+    """
+    mat = bpy.data.materials.new("annotation_halo_mat")
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    if bsdf:
+        _set_input(bsdf, ["Base Color"], ANNOT_HALO_COLOR)
+        _set_input(bsdf, ["Roughness"], 0.9)
+        _set_input(bsdf, ["Metallic"], 0.0)
+        _set_input(bsdf, ["Specular", "Specular IOR Level"], 0.0)
+        _set_input(bsdf, ["Emission Color"], ANNOT_HALO_COLOR)
+        _set_input(bsdf, ["Emission Strength"], 1.0)
+    return mat
+
+
+def _push_from_cam(obj, cam, frac=None):
+    """Slide an object away from the camera along its own view ray, so a halo sits BEHIND the
+    ink it outlines instead of z-fighting with it.
+
+    The shove is a fraction of the object's OWN distance from the camera, which is what makes
+    one setting work for both the 448 km scale bars and the 5 km HUD compass. An absolute
+    distance that merely separates the scale bars would drive the arrow's halo most of the way
+    to the lens.
+    """
+    if cam is None:
+        return
+    f = ANNOT_HALO_DEPTH_FRAC if frac is None else frac
+    if f == 0:
+        return
+    # Ray from the camera to where the object actually IS - its geometry's world centre, not
+    # its origin. _flat_mesh builds the north arrow from literal world-space vertices and
+    # leaves the origin at (0,0,0), so an origin-based ray aims at the world origin instead
+    # and shoves the halo hundreds of metres sideways, off its own ink.
+    corners = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
+    centre = sum(corners, Vector((0.0, 0.0, 0.0))) / len(corners)
+    d = centre - cam.location
+    if d.length < 1e-6:
+        return
+    obj.matrix_world.translation = obj.matrix_world.translation + d * f
+
+
+def _no_reflection(*objs):
+    """Keep an annotation out of glossy rays. A bright halo made the scale label show up as a
+    legible MIRRORED copy of itself in the Ionian - the dark ink alone had always reflected
+    too, it was just too faint to notice."""
+    for o in objs:
+        if o is None:
+            continue
+        try:
+            o.visible_glossy = False
+        except AttributeError:
+            pass
+
+
 def _camera_basis(cam):
     """right, up, to_cam unit vectors (world space) from the camera's OWN local axes.
     Needs bpy.context.view_layer.update() to have run since make_camera() - the TRACK_TO
@@ -1731,56 +1851,128 @@ def _billboard_matrix(loc, cam):
     return rot
 
 
-def _make_text(name, text, loc, cam, height_km, mat):
+def _make_text(name, text, loc, cam, height_km, mat, halo_mat=None, outset_km=0.0):
     """A flat, camera-facing text label (see _billboard_matrix). Used for both the scale-bar
-    km numbers and the geological place-names - same billboarding, same ink."""
-    curve = bpy.data.curves.new(name, type="FONT")
-    curve.body = text
-    curve.size = height_km
-    curve.align_x = "CENTER"
-    curve.align_y = "CENTER"
-    curve.extrude = 0.0        # flat: any extrusion would run along local Z (toward the
+    km numbers and the geological place-names - same billboarding, same ink.
+
+    `outset_km` drives the halo through the font curve's own outline offset, which grows the
+    glyph outlines outward in every direction. That is a genuine outline, unlike scaling a
+    copy of the text: a scaled copy also moves the letters apart, so it drifts out of
+    register with the ink it is supposed to be sitting behind.
+    """
+    def _build(obj_name, size, offset, material):
+        curve = bpy.data.curves.new(obj_name, type="FONT")
+        curve.body = text
+        curve.size = size
+        curve.align_x = "CENTER"
+        curve.align_y = "CENTER"
+        curve.extrude = 0.0    # flat: any extrusion would run along local Z (toward the
                                 # camera), invisible face-on and pure risk at the silhouette
-    obj = bpy.data.objects.new(name, curve)
-    bpy.context.collection.objects.link(obj)
-    obj.matrix_world = _billboard_matrix(loc, cam)
-    obj.data.materials.append(mat)
-    try:
-        obj.visible_shadow = False
-    except AttributeError:
-        pass
+        try:
+            curve.offset = offset
+        except AttributeError:
+            pass
+        o = bpy.data.objects.new(obj_name, curve)
+        bpy.context.collection.objects.link(o)
+        o.matrix_world = _billboard_matrix(loc, cam)
+        o.data.materials.append(material)
+        try:
+            o.visible_shadow = False
+        except AttributeError:
+            pass
+        return o
+
+    obj = _build(name, height_km, 0.0, mat)
+    if halo_mat is not None and outset_km > 0:
+        halo = _build(name + "_halo", height_km, outset_km, halo_mat)
+        _push_from_cam(halo, cam)
+        obj["halo_obj"] = halo.name        # so callers can move the pair together
     return obj
 
 
-def _dashed_bar(name, p0, p1, tick_dir, mat):
+def _text_halo_outset(height_km):
+    """Glyph outset for a label of this height - always a fraction of the glyph, never a
+    fixed length. See ANNOT_HALO_TEXT_FRAC."""
+    return height_km * ANNOT_HALO_TEXT_FRAC if ANNOT_HALO else 0.0
+
+
+def _label_halo(obj):
+    """The halo object belonging to a label, if it has one."""
+    name = obj.get("halo_obj") if hasattr(obj, "get") else None
+    return bpy.data.objects.get(name) if name else None
+
+
+def _clear_label(obj, cam, world_dir, gap_km):
+    """Slide a centred billboard label clear of the thing it labels, by its OWN measured size.
+
+    The gap has to be resolved in SCREEN space. The label is offset along a world axis (the
+    tick direction, so it reads as a continuation of the ruler) but drawn facing the camera,
+    so how much of it still lies over the bar depends on how that world axis projects onto the
+    camera's right/up vectors. Centring alone therefore leaves half the text on the bar - which
+    is exactly how the dashed bar came to run through its own number - and guessing a constant
+    gap breaks again the moment the string or the font size changes.
+    """
+    if cam is None:
+        return
+    bpy.context.view_layer.update()     # font geometry (and so .dimensions) is depsgraph-built
+    right, up, _ = _camera_basis(cam)
+    d = Vector(world_dir).normalized()
+    sx, sy = d.dot(right), d.dot(up)
+    if abs(sx) >= abs(sy):
+        shift = right * math.copysign(obj.dimensions.x / 2.0 + gap_km, sx or 1.0)
+    else:
+        shift = up * math.copysign(obj.dimensions.y / 2.0 + gap_km, sy or 1.0)
+    for o in (obj, _label_halo(obj)):
+        if o is not None:
+            o.matrix_world.translation = o.matrix_world.translation + shift
+
+
+def _dashed_bar(name, p0, p1, tick_dir, mat, grow_km=0.0):
     """One dashed straight bar p0->p1 (scene km, Vector) with a short perpendicular
     tick cap at each end. Returns the joined object. Segment length is SCALE_DASH_KM so it
-    doesn't machine-look like a solid rod; the tick caps read as ruler end-marks."""
+    doesn't machine-look like a solid rod; the tick caps read as ruler end-marks.
+
+    `grow_km` fattens every element for the halo pass. It grows the bar SIDEWAYS and extends
+    each dash and tick lengthwise, but never changes where the dashes start or how long the
+    bar is overall - the bar depicts a measurement, so a halo that scaled it would quietly
+    redraw the quantity it is annotating.
+    """
     v0, v1 = Vector(p0), Vector(p1)
     length = (v1 - v0).length
     direction = (v1 - v0).normalized() if length > 1e-6 else Vector((0, 0, 1))
     rot = Vector((0, 0, 1)).rotation_difference(direction)
     tick_rot = Vector((0, 0, 1)).rotation_difference(tick_dir.normalized())
+    thick = SCALE_THICKNESS_KM + 2.0 * grow_km
+
+    # Proportion the dashes and the end ticks to THIS bar's own length. The two bars differ by
+    # a factor of three - the amphitheatre is 17.5 km across while the drop is 2.0 km, which at
+    # VE 3 is only ~6 km of scene - so one absolute dash/tick size cannot serve both. Sized for
+    # the long bar, the short one came out as three stubs between two ticks half its own
+    # length: it stopped reading as a ruler at all.
+    period = SCALE_DASH_KM + SCALE_GAP_KM
+    shrink = min(1.0, length / (SCALE_DASH_MIN_COUNT * period)) if period > 0 else 1.0
+    dash_km, gap_km = SCALE_DASH_KM * shrink, SCALE_GAP_KM * shrink
+    tick_km = min(SCALE_TICK_KM, SCALE_TICK_MAX_FRAC * length)
 
     parts = []
     d = 0.0
     while d < length:
-        seg_len = min(SCALE_DASH_KM, length - d)
+        seg_len = min(dash_km, length - d)
         centre = v0 + direction * (d + seg_len / 2.0)
         bpy.ops.mesh.primitive_cube_add(size=1.0, location=tuple(centre))
         cube = bpy.context.active_object
         cube.rotation_mode = "QUATERNION"
         cube.rotation_quaternion = rot
-        cube.scale = (SCALE_THICKNESS_KM, SCALE_THICKNESS_KM, seg_len / 2.0)
+        cube.scale = (thick, thick, seg_len / 2.0 + grow_km)
         parts.append(cube)
-        d += SCALE_DASH_KM + SCALE_GAP_KM
+        d += dash_km + gap_km
 
     for end in (v0, v1):
         bpy.ops.mesh.primitive_cube_add(size=1.0, location=tuple(end))
         cap = bpy.context.active_object
         cap.rotation_mode = "QUATERNION"
         cap.rotation_quaternion = tick_rot
-        cap.scale = (SCALE_THICKNESS_KM, SCALE_THICKNESS_KM, SCALE_TICK_KM / 2.0)
+        cap.scale = (thick, thick, tick_km / 2.0 + grow_km)
         parts.append(cap)
 
     bpy.ops.object.select_all(action="DESELECT")
@@ -1798,7 +1990,7 @@ def _dashed_bar(name, p0, p1, tick_dir, mat):
     return bar
 
 
-def make_scale_bars(meta, ve, width_km, height_km, cam, mat):
+def make_scale_bars(meta, ve, width_km, height_km, cam, mat, halo_mat=None):
     """Dashed height/width reference sticks planted right at the cascade, each with a km
     label - see the CONFIG block above for why this is baked into the 3D scene instead of
     drawn in Illustrator, and for the manuscript cross-check behind the two label values.
@@ -1831,6 +2023,14 @@ def make_scale_bars(meta, ve, width_km, height_km, cam, mat):
     off = SCALE_VERTICAL_OFFSET_KM
     top = pull_toward_cam((vx, vy + off, vz_top))
     base = pull_toward_cam((bx, by + off, bz_base))
+    halo_on = bool(ANNOT_HALO and halo_mat is not None)
+    halos = []
+    if halo_on:
+        h = _dashed_bar("scale_bar_vertical_halo", base, top,
+                         Vector((1, 0, 0)), halo_mat,
+                         grow_km=SCALE_THICKNESS_KM * ANNOT_HALO_BAR_FRAC)
+        _push_from_cam(h, cam)
+        halos.append(h)
     vertical = _dashed_bar("scale_bar_vertical", base, top,
                             Vector((1, 0, 0)), mat)
 
@@ -1839,15 +2039,22 @@ def make_scale_bars(meta, ve, width_km, height_km, cam, mat):
                                           SCALE_HORIZONTAL_X_M, y0_m, SCALE_HORIZONTAL_Z_M))
     right = pull_toward_cam(_crs_to_scene(meta, ve, width_km, height_km,
                                            SCALE_HORIZONTAL_X_M, y1_m, SCALE_HORIZONTAL_Z_M))
+    if halo_on:
+        h = _dashed_bar("scale_bar_horizontal_halo", left, right,
+                         Vector((0, 0, 1)), halo_mat,
+                         grow_km=SCALE_THICKNESS_KM * ANNOT_HALO_BAR_FRAC)
+        _push_from_cam(h, cam)
+        halos.append(h)
     horizontal = _dashed_bar("scale_bar_horizontal", left, right,
                               Vector((0, 0, 1)), mat)
 
-    for obj in (vertical, horizontal):
+    for obj in (vertical, horizontal, *halos):
         for attr in ("visible_shadow",):
             try:
                 setattr(obj, attr, False)   # a floating annotation shouldn't cast a shadow
             except AttributeError:          # onto the terrain it's been pulled in front of
                 pass
+        _no_reflection(obj)
 
     drop_m = SCALE_VERTICAL_TOP_M[2] - SCALE_VERTICAL_BASE_M[2]
     width_m = y1_m - y0_m
@@ -1859,20 +2066,29 @@ def make_scale_bars(meta, ve, width_km, height_km, cam, mat):
         # place beyond each bar's own tick, along the SAME direction the tick already points
         # (vertical bar's ticks run in X, horizontal bar's ticks run in Z) - reads as a
         # continuation of the ruler rather than a random floating caption
+        hk = _text_halo_outset(SCALE_LABEL_HEIGHT_KM) if halo_on else 0.0
+        vdir = Vector((1, 0, 0))
         vmid = (Vector(base) + Vector(top)) / 2.0
-        vlabel_pt = pull_toward_cam(
-            tuple(vmid + Vector((1, 0, 0)) * (SCALE_TICK_KM / 2.0 + SCALE_LABEL_GAP_KM)),
-            pull_km=1.0)
-        labels.append(_make_text("scale_label_vertical", vert_text, vlabel_pt, cam,
-                                  SCALE_LABEL_HEIGHT_KM, mat))
+        vlabel_pt = pull_toward_cam(tuple(vmid + vdir * (SCALE_TICK_KM / 2.0)), pull_km=1.0)
+        vlab = _make_text("scale_label_vertical", vert_text, vlabel_pt, cam,
+                           SCALE_LABEL_HEIGHT_KM, mat, halo_mat if halo_on else None, hk)
+        _clear_label(vlab, cam, vdir, SCALE_LABEL_GAP_KM)
+        labels.append(vlab)
 
+        hdir = Vector((0, 0, 1))
         hmid = (Vector(left) + Vector(right)) / 2.0
-        hlabel_pt = pull_toward_cam(
-            tuple(hmid + Vector((0, 0, 1)) * (SCALE_TICK_KM / 2.0 + SCALE_LABEL_GAP_KM)),
-            pull_km=1.0)
-        labels.append(_make_text("scale_label_horizontal", horiz_text, hlabel_pt, cam,
-                                  SCALE_LABEL_HEIGHT_KM, mat))
-        log(f"scale labels: '{vert_text}' / '{horiz_text}'")
+        hlabel_pt = pull_toward_cam(tuple(hmid + hdir * (SCALE_TICK_KM / 2.0)), pull_km=1.0)
+        hlab = _make_text("scale_label_horizontal", horiz_text, hlabel_pt, cam,
+                           SCALE_LABEL_HEIGHT_KM, mat, halo_mat if halo_on else None, hk)
+        _clear_label(hlab, cam, hdir, SCALE_LABEL_GAP_KM)
+        labels.append(hlab)
+        # The horizontal label stands over the flooded corridor and the sea beyond it, and its
+        # pale halo made it show up as a fully legible MIRRORED copy of itself out in the
+        # Ionian. The dark ink had always reflected there too - it was just too faint to spot.
+        for lab in labels:
+            _no_reflection(lab, _label_halo(lab))
+        log(f"scale labels: '{vert_text}' / '{horiz_text}' "
+            f"(height {SCALE_LABEL_HEIGHT_KM} km, halo {'on' if halo_on else 'off'})")
 
     log("scale bars: vertical drop %.0f m (rim %.0f m -> base %.0f m), horizontal front %.1f km, "
         "pulled %.1f km toward camera"
@@ -1881,7 +2097,7 @@ def make_scale_bars(meta, ve, width_km, height_km, cam, mat):
     return vertical, horizontal, labels
 
 
-def make_geo_labels(meta, ve, width_km, height_km, cam, mat):
+def make_geo_labels(meta, ve, width_km, height_km, cam, mat, halo_mat=None):
     """Three billboarded place-name labels - see the CONFIG block for the manuscript-checked
     siting of each. Camera-pulled exactly like the scale bars, for the same occlusion reason."""
     if not GEO_LABELS or cam is None:
@@ -1898,16 +2114,18 @@ def make_geo_labels(meta, ve, width_km, height_km, cam, mat):
         lifted = Vector((sx, sy, base_z + GEO_LABEL_LIFT_KM))
         d = cam.location - lifted
         loc = lifted + d.normalized() * GEO_LABEL_CAMERA_PULL_KM if d.length > 1e-6 else lifted
+        halo_on = bool(ANNOT_HALO and halo_mat is not None)
         obj = _make_text(f"geo_label_{text.replace(' ', '_')}", text, tuple(loc), cam,
-                          GEO_LABEL_HEIGHT_KM, mat)
+                          GEO_LABEL_HEIGHT_KM, mat,
+                          halo_mat if halo_on else None,
+                          _text_halo_outset(GEO_LABEL_HEIGHT_KM) if halo_on else 0.0)
         if GEO_LABEL_NO_REFLECTION:
             # "Ionian Basin" over open water was picking up a soft mirror double in the
             # glossy sea below it (SEA_WAVE_GEO + a fairly low WATER_ROUGHNESS) - the label
-            # still renders normally to camera rays, it just stops appearing IN reflections
-            try:
-                obj.visible_glossy = False
-            except AttributeError:
-                pass
+            # still renders normally to camera rays, it just stops appearing IN reflections.
+            # The halo has to be excluded too, or the reflection shows a ghost outline of a
+            # label that is no longer there.
+            _no_reflection(obj, _label_halo(obj))
         objs.append(obj)
     log("geo labels: " + ", ".join(t for t, *_ in GEO_LABELS_LIST))
     return objs
@@ -1933,7 +2151,7 @@ def _flat_mesh(name, verts, faces, mat):
     return obj
 
 
-def make_north_arrow(cam, mat):
+def make_north_arrow(cam, mat, halo_mat=None):
     """A flat HUD compass glued a few km in front of the lens - see the CONFIG block for why
     this, not a ground-plane arrow or an Illustrator overlay. Bearing = true north (+Y)
     projected onto the camera's own right/up basis; a direction needs no perspective divide,
@@ -1974,27 +2192,46 @@ def make_north_arrow(cam, mat):
     shaft_tip = corner + dir_world * shaft_len
     tip = corner + dir_world * total_len
 
-    shaft = _flat_mesh(
-        "north_arrow_shaft",
-        [tail + perp * (thick / 2.0), tail - perp * (thick / 2.0),
-         shaft_tip - perp * (thick / 2.0), shaft_tip + perp * (thick / 2.0)],
-        [0, 1, 2, 3], mat)
-    head = _flat_mesh(
-        "north_arrow_head",
-        [tip, shaft_tip - perp * head_half_w, shaft_tip + perp * head_half_w],
-        [0, 1, 2], mat)
+    def _build_arrow(suffix, material, g=0.0):
+        """The arrow, optionally outset by `g` for the halo. The outset grows the silhouette
+        along both the shaft axis and the perpendicular, which is a real outline - a uniformly
+        scaled copy would also slide the whole icon along its own axis, because the arrow is
+        anchored at its tail rather than at its centre."""
+        shaft = _flat_mesh(
+            "north_arrow_shaft" + suffix,
+            [tail - dir_world * g + perp * (thick / 2.0 + g),
+             tail - dir_world * g - perp * (thick / 2.0 + g),
+             shaft_tip - perp * (thick / 2.0 + g),
+             shaft_tip + perp * (thick / 2.0 + g)],
+            [0, 1, 2, 3], material)
+        head = _flat_mesh(
+            "north_arrow_head" + suffix,
+            [tip + dir_world * g,
+             shaft_tip - perp * (head_half_w + g),
+             shaft_tip + perp * (head_half_w + g)],
+            [0, 1, 2], material)
+        bpy.ops.object.select_all(action="DESELECT")
+        shaft.select_set(True)
+        head.select_set(True)
+        bpy.context.view_layer.objects.active = shaft
+        bpy.ops.object.join()
+        obj = bpy.context.active_object
+        obj.name = "north_arrow" + suffix
+        return obj
 
-    bpy.ops.object.select_all(action="DESELECT")
-    shaft.select_set(True)
-    head.select_set(True)
-    bpy.context.view_layer.objects.active = shaft
-    bpy.ops.object.join()
-    arrow = bpy.context.active_object
-    arrow.name = "north_arrow"
+    halo_on = bool(ANNOT_HALO and halo_mat is not None)
+    if halo_on:
+        # the HUD sits a few km in front of the lens, so the halo's push-back is scaled down
+        # to match - a 0.3 km shove here would be a large fraction of NORTH_ARROW_DIST_KM
+        _push_from_cam(_build_arrow("_halo", halo_mat, thick * ANNOT_HALO_BAR_FRAC), cam)
+    arrow = _build_arrow("", mat)
 
     label_pt = tip + dir_world * (NORTH_ARROW_LABEL_FRAC * total_len * 1.3)
     label = _make_text("north_arrow_N", "N", tuple(label_pt), cam,
-                        NORTH_ARROW_LABEL_FRAC * total_len, mat)
+                        NORTH_ARROW_LABEL_FRAC * total_len, mat,
+                        halo_mat if halo_on else None,
+                        _text_halo_outset(NORTH_ARROW_LABEL_FRAC * total_len)
+                        if halo_on else 0.0)
 
     log(f"north arrow: bearing {math.degrees(theta):.1f} deg on screen "
         f"(HUD {d:.1f} km in front of lens, length {total_len:.3f} km)")
@@ -2238,9 +2475,10 @@ def main():
     # therefore world_to_camera_view / the annotation billboarding below) is trustworthy.
     bpy.context.view_layer.update()
     annot_mat = make_annotation_material()
-    make_scale_bars(meta, ve, wkm, hkm, cam, annot_mat)   # after the camera - see its docstring
-    make_geo_labels(meta, ve, wkm, hkm, cam, annot_mat)
-    make_north_arrow(cam, annot_mat)
+    halo_mat = make_halo_material() if ANNOT_HALO else None
+    make_scale_bars(meta, ve, wkm, hkm, cam, annot_mat, halo_mat)  # after the camera - see docstring
+    make_geo_labels(meta, ve, wkm, hkm, cam, annot_mat, halo_mat)
+    make_north_arrow(cam, annot_mat, halo_mat)
     setup_render();                                 bar.step("ready")
 
     eng = bpy.context.scene.render.engine.replace("BLENDER_", "")
