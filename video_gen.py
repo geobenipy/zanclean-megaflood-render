@@ -24,8 +24,11 @@ from tqdm import tqdm
 # Where render_waterfall.py's ANIM_DIR wrote the frames (its default is DATA_DIR/anim).
 INPUT_FOLDER = Path(
     r"."
-    r"\output_overview_old\output_overview\anim"
+    r"\output_final\anim_16x9"
 )
+# The 3:2 clip's frames are in output_final\anim next door. Keep the two apart: both number
+# their frames from 1, so a folder mix-up produces a video that silently changes aspect ratio
+# partway through rather than failing.
 
 OUTPUT_VIDEO = INPUT_FOLDER / "zanclean_flood.mp4"
 

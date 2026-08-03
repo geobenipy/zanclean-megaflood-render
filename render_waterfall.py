@@ -335,7 +335,9 @@ SCALE_HORIZONTAL_LABEL = "~20 km"   # the manuscript's own wording ("more than 2
 #   - "Sicily Sill": the broad near-planar shelf landward of the canyon rim, on dry
 #     (desiccated) ground - the whole sill was subaerially exposed during the MSC.
 #   - "Hyblean Plateau": the uplifted foreland domain forming Sicily's southern margin -
-#     sited on clearly elevated (+779 m) dry terrain near the frame's upper-left edge.
+#     sited on clearly elevated (+779 m) dry terrain near the frame's upper-left edge. This
+#     anchor is right for the 3:2 STILL and is deliberately left alone; the 16:9 animation
+#     crops it off the top and moves it via ANIM_GEO_LABEL_MOVES.
 #   - "Ionian Basin": the receiving abyssal plain the flood empties into - sited in open
 #     deep water SE of the plunge, clear of the corridor/plume. Excluded from glossy rays
 #     (GEO_LABEL_NO_REFLECTION) so it doesn't mirror in the sea below it.
@@ -570,7 +572,14 @@ ANIM_FORMAT  = "PNG"                # "PNG" (frame sequence -> video_gen.py) | "
                                     # 400 loses the whole MP4 but keeps every PNG (see
                                     # ANIM_RESUME), and PNG frames can be re-graded/re-encoded
                                     # for whatever format the journal asks for.
-ANIM_DIR     = None                 # None = DATA_DIR/anim
+ANIM_DIR     = (r"."
+                r"\output_final\anim_16x9")
+                                    # None = DATA_DIR/anim. Named explicitly here because the
+                                    # 3:2 clip's 750 frames still exist next door: ANIM_RESUME
+                                    # matches on frame NUMBER, so pointing a 16:9 run at that
+                                    # folder would "resume" it and quietly keep 3:2 frames.
+                                    # (_check_resume_frames warns, but a separate folder means
+                                    # the situation cannot arise.)
 FLOOD_RISE_FROM_M = -3500.0         # flood_rise: start level (deep) -> rises to paleo_sea_level_m
 
 # Per-frame quality. The still is 4800x3200 / 256 spp and takes ~2 h; multiplied by several
@@ -578,18 +587,21 @@ FLOOD_RISE_FROM_M = -3500.0         # flood_rise: start level (deep) -> rises to
 # animation only. SUBDIVISIONS is deliberately NOT reduced: the mesh is built ONCE and then
 # reused by every frame, so its cost is a one-off, while dropping it would round the cascade
 # rollers back into pillows - which is the whole point of CASCADE_RELIEF.
-ANIM_RES_X, ANIM_RES_Y = 1920, 1280  # 3:2, i.e. the figure's exact framing. Do NOT raise this
-                                     # to spend a bigger time budget - it is the wrong place to
-                                     # put it, for two reasons that have nothing to do with the
-                                     # renderer. Nature caps a supplementary video at 30 MB, so
-                                     # more pixels are spent at a LOWER bitrate per pixel, and
-                                     # the H.264 blocking that buys is far more visible than the
-                                     # sharpness gained. And it is not cheap: 2304x1536 was
-                                     # measured at ~1.45x the cost per frame, i.e. exactly its
-                                     # pixel ratio. Nature also asks for 16:9 (4:3 second best),
-                                     # which 3:2 is not - matching the printed figure's framing
-                                     # was judged worth more than matching that preference, but
-                                     # it is a deliberate choice, not an oversight.
+ANIM_RES_X, ANIM_RES_Y = 1920, 1080  # 16:9, which is what Nature asks for (4:3 second best).
+                                     # With sensor_fit AUTO and a landscape frame the sensor is
+                                     # fitted to the WIDTH, so the horizontal FOV depends on the
+                                     # lens alone: dropping Y from 1280 (3:2) to 1080 is exactly a
+                                     # symmetric vertical crop and leaves the still's framing
+                                     # horizontally untouched. What it does cost is 100 px top and
+                                     # bottom - which is why the "Hyblean Plateau" label had to be
+                                     # re-sited (see GEO_LABELS_LIST); the north arrow is a HUD
+                                     # placed at a screen fraction and re-seats itself.
+                                     # Do NOT raise this to spend a bigger time budget. Nature
+                                     # caps a supplementary video at 30 MB, so more pixels are
+                                     # spent at a LOWER bitrate each, and the H.264 blocking that
+                                     # buys is far more visible than the sharpness gained. It is
+                                     # not cheap either: 2304x1536 measured ~1.45x the cost per
+                                     # frame, i.e. exactly its pixel ratio.
 ANIM_SAMPLES        = 96             # MEASURED, not guessed. Frame 450 was rendered at 96 and
                                      # at 64 spp and compared 1:1 at the cascade - where the
                                      # spray volume makes noise most likely - and the two are
@@ -647,6 +659,36 @@ ANIM_ADVANCE_FROM = 0.55             # the reveal starts HERE, not at 0. The cor
                                      # still a completely dry frame. Re-measure this if
                                      # MEGAFLOOD_PATH or the camera changes.
 
+# --- the Ionian starts DESICCATED and fills ------------------------------------------------
+# The still shows the sea already standing at PALEO_SEA_LEVEL_M (-2200 m), which is a lowstand
+# remnant, not a modern sea. In a clip that is a contradiction: the flood arrives at a basin
+# that is already full, so the cascade pours into water it is supposed to be delivering. With
+# the fill on, frame 1 is a bone-dry Mediterranean and the sea rises only once the torrent goes
+# over the lip - which is the event the figure is about.
+#
+# This costs nothing in the merge, for two measured reasons: the sea floor is already painted
+# as DRY ground in both colormaps (identical RGB in colormap.png and colormap_dry.png), and the
+# flood sheet reaches only 19 km2 past the shoreline, all of it already inside its
+# FLOOD_SEA_MERGE_M dissolve band - so taking the sea away leaves no water slab hanging over
+# the empty basin. Verified by rendering the same scene at -3700 / -3200 / -2200 m.
+ANIM_SEA_FILL        = True
+ANIM_SEA_FILL_FROM_M = None          # start level; None = the frame's own zmin_m, i.e. the plane
+                                     # sits exactly at the lowest ground so there is no water
+                                     # anywhere and every metre of the ramp is on screen. A
+                                     # deeper start just wastes the first part of the fill.
+ANIM_SEA_FILL_LAG_S  = 0.5           # after the front reaches the lip. Small but not zero: the
+                                     # basin must be seen to be dry at the moment the water
+                                     # arrives, otherwise the fill reads as a level that was
+                                     # rising anyway.
+ANIM_SEA_FILL_S      = 13.0          # ramp duration. It ends before the last frame on purpose -
+                                     # the clip then holds a few seconds at exactly
+                                     # PALEO_SEA_LEVEL_M, so its final frame IS the published
+                                     # figure. Note this is not a discharge rate: filling
+                                     # ~12600 km3 would take minutes at any plausible discharge,
+                                     # and the advance across the basin is compressed just as
+                                     # hard. The clip is a schematic of the sequence, not a
+                                     # timeline, and the caption should say so.
+
 ANIM_WATER_MOTION   = True
 ANIM_FLOW_DIR_DEG   = 100.0          # compass bearing the torrent FLOWS TOWARD at the cascade
                                      # (the route runs W->E and plunges ESE). Only the surface
@@ -669,6 +711,36 @@ ANIM_FLOW_DIR_DEG   = 100.0          # compass bearing the torrent FLOWS TOWARD 
 ANIM_FLOW_KM_S      = 10.0           # ~26 % of the sheet's aliasing ceiling
 ANIM_SEA_KM_S       = 2.5            # the Ionian is the calm receiving basin - it should still
                                      # only crawl, but 0.35 was literally imperceptible
+# Label anchors that only the 16:9 crop needs. Keyed by the label's text; the value replaces
+# that entry's (x_m, y_m, elev_m) in GEO_LABELS_LIST for the animation only, so the printed
+# figure keeps the anchors it was published with.
+# "Hyblean Plateau" has to move because its still anchor projects to y = -0.03 in 16:9, i.e.
+# just off the top edge. The replacement was not nudged by eye: every DEM point above 300 m
+# was projected through the actual camera at the TIGHTEST lens (ANIM_PUSH_LENS_MM, where the
+# frame is smallest and a label is most likely to fall out), and this is the HIGHEST ground
+# that lands inside it - 20 km east, on the same plateau, +643 m. Re-derive the same way if
+# the crop, the lens or the camera changes: read elevations off the heightmap, run each
+# candidate through _crs_to_scene + the lift/camera-pull make_geo_labels applies, and project
+# with bpy_extras world_to_camera_view. Do not nudge it by eye - the label has to sit on
+# ground that IS the named landform.
+ANIM_GEO_LABEL_MOVES = {
+    "Hyblean Plateau": (495000.0, 4095000.0, 642.7),
+}
+
+ANIM_FLOOD_WAVE_BOOST = 2.5          # multiplies FLOOD_WAVE_STRENGTH / FLOOD_SWELL_STRENGTH for
+                                     # the ANIMATION ONLY - the still on main is untouched.
+                                     # Motion on the flood sheet is inherently weaker than on the
+                                     # sea, and not because the drift speeds are too low: they sit
+                                     # at ~26 % of the aliasing ceiling. FLOOD_SHEET_IOR = 1.0
+                                     # deliberately kills the sheet's Fresnel reflection so the
+                                     # torrent reads as matte sediment water, and a bump layer can
+                                     # only modulate what a surface reflects - with no reflection
+                                     # there is almost nothing for a moving normal to change. The
+                                     # amplitude is the limit, so the amplitude is what is raised.
+                                     # Raising IOR instead would work far better and was rejected:
+                                     # it costs the matte look that separates the torrent from the
+                                     # blue Ionian, which is a figure decision, not a video one.
+                                     # 1.0 = exactly the still's water.
 ANIM_MIST_MOTION    = True           # billow + lift the spray plume. Separate switch because it
                                      # touches the volume shader, and Cycles 5.1 has a history
                                      # of crashing on those (see make_plunge_mist) - if a test
@@ -804,7 +876,9 @@ def make_terrain(meta):
     terrain = bpy.context.active_object
     terrain.name = "palaeo_terrain"
     terrain.scale = (1.0, height_km / width_km, 1.0)
-    bpy.ops.object.transform_apply(scale=True)
+    # location/rotation passed EXPLICITLY: bpy operator properties are sticky, so a bare
+    # transform_apply(scale=True) inherits whatever the previous call used - see make_water.
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
     # load heightmap as NON-COLOR data (so values aren't gamma-shifted)
     img_path = os.path.join(DATA_DIR, meta.get("heightmap_png", "heightmap_16bit.png"))
@@ -1120,7 +1194,14 @@ def make_water(meta, ve, width_km, height_km):
     water = bpy.context.active_object
     water.name = "palaeo_water"
     water.scale = (width_km * WATER_MARGIN, height_km * WATER_MARGIN, 1.0)
-    bpy.ops.object.transform_apply(scale=True)
+    # location=False is LOAD-BEARING, not tidiness. bpy operator properties are sticky: a bare
+    # transform_apply(scale=True) reuses the previous call's flags, which baked this plane's
+    # sea-level z into its MESH and left object.location.z at 0. Everything that animates the
+    # sea (ANIM_TYPE "flood_rise", and the sea fill in "flood_advance") writes world heights
+    # into location.z, so
+    # with the height hidden in the mesh those writes were offsets on top of it and sank the
+    # sea out of the frame instead of raising it.
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
     if waves:
         # world-scale rolling swell via a Displace modifier + a legacy CLOUDS texture.
@@ -1351,7 +1432,7 @@ def make_flood_sheet(meta, ve, width_km, height_km):
     sheet = bpy.context.active_object
     sheet.name = "flood_sheet"
     sheet.scale = (1.0, height_km / width_km, 1.0)
-    bpy.ops.object.transform_apply(scale=True)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
     # displace from the FLOOD WATER-SURFACE heightmap (not the terrain): the sheet sits
     # at the flood water level, so it fills lows and lets highs poke through instead of
@@ -1638,7 +1719,7 @@ def make_plunge_mist(meta, ve, width_km, height_km):
     box.name = "plunge_mist"
     box.location = ((x0 + x1) / 2, (y0 + y1) / 2, (zb + zt) / 2)
     box.scale = (x1 - x0, y1 - y0, zt - zb)
-    bpy.ops.object.transform_apply(scale=True)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
 
     mat = bpy.data.materials.new("plunge_mist_mat")
     mat.use_nodes = True
@@ -2510,9 +2591,21 @@ def _apply_anim_overrides():
     RES_X/RES_Y and the camera lens, so it has to see the animation's values already.
     """
     global RES_X, RES_Y, SAMPLES, MIST_STEP_RATE
+    global FLOOD_WAVE_STRENGTH, FLOOD_SWELL_STRENGTH, GEO_LABELS_LIST
     RES_X, RES_Y = ANIM_RES_X, ANIM_RES_Y
     SAMPLES = ANIM_SAMPLES
     MIST_STEP_RATE = ANIM_MIST_STEP_RATE
+    # The sheet's bump amplitude is a look setting of the FIGURE, so it is raised here rather
+    # than in the CONFIG block: the still keeps its published value, the clip gets a surface
+    # that visibly moves. See ANIM_FLOOD_WAVE_BOOST for why amplitude and not speed.
+    if ANIM_WATER_MOTION and ANIM_FLOOD_WAVE_BOOST != 1.0:
+        FLOOD_WAVE_STRENGTH *= float(ANIM_FLOOD_WAVE_BOOST)
+        FLOOD_SWELL_STRENGTH *= float(ANIM_FLOOD_WAVE_BOOST)
+    if ANIM_GEO_LABEL_MOVES:
+        GEO_LABELS_LIST = [(t, *ANIM_GEO_LABEL_MOVES.get(t, (x, y, e)))
+                           for t, x, y, e in GEO_LABELS_LIST]
+        for t in ANIM_GEO_LABEL_MOVES:
+            log(f"anim: label '{t}' re-sited for the {ANIM_RES_X}x{ANIM_RES_Y} crop")
 
 
 def _iter_fcurves(action):
@@ -2548,6 +2641,24 @@ def _key(sock, keys, interp="LINEAR"):
     ad = getattr(sock.id_data, "animation_data", None)
     for fc in _iter_fcurves(ad.action if ad else None):
         if fc.data_path == path:
+            for kp in fc.keyframe_points:
+                kp.interpolation = interp
+
+
+def _key_loc_z(obj, keys, interp="BEZIER"):
+    """Keyframe an object's world Z in km: keys = [(frame, z_km), ...].
+
+    Separate from _key() because location is an object property with an ARRAY index rather
+    than a node socket, so its f-curve is identified by (data_path 'location', array_index 2).
+    Writing world heights here is only correct because make_water no longer bakes the plane's
+    height into its mesh - see the transform_apply comment there.
+    """
+    for fr, val in keys:
+        obj.location.z = val
+        obj.keyframe_insert("location", index=2, frame=int(round(fr)))
+    ad = getattr(obj, "animation_data", None)
+    for fc in _iter_fcurves(ad.action if ad else None):
+        if fc.data_path == "location" and fc.array_index == 2:
             for kp in fc.keyframe_points:
                 kp.interpolation = interp
 
@@ -2830,8 +2941,7 @@ def setup_animation(scene, meta, ve, water, cam, target, flood_sheet=None,
     if ANIM_TYPE in ("flood_rise", "flood_and_orbit") and water is not None:
         z0 = ve * FLOOD_RISE_FROM_M / 1000.0
         z1 = ve * meta["paleo_sea_level_m"] / 1000.0
-        water.location.z = z0; water.keyframe_insert("location", index=2, frame=1)
-        water.location.z = z1; water.keyframe_insert("location", index=2, frame=ANIM_FRAMES)
+        _key_loc_z(water, [(1, z0), (ANIM_FRAMES, z1)], "LINEAR")
         log(f"anim: flood rises {FLOOD_RISE_FROM_M:.0f} -> {meta['paleo_sea_level_m']:.0f} m")
 
     if ANIM_TYPE in ("orbit", "flood_and_orbit"):
@@ -2884,6 +2994,22 @@ def setup_animation(scene, meta, ve, water, cam, target, flood_sheet=None,
                           (min(adv_f + 3.0 * ANIM_FPS, ANIM_FRAMES), float(SEA_PLUME_STRENGTH)),
                           (ANIM_FRAMES, float(SEA_PLUME_STRENGTH))], "BEZIER")
                     log("anim: sea turbidity plume builds after the plunge")
+
+            # The Ionian is DRY until the torrent delivers it. Same rule as the two plumes -
+            # a consequence must not pre-date its cause - but this one is the whole point of
+            # the clip: without it the flood pours into a basin that is already full.
+            if ANIM_SEA_FILL and water is not None:
+                z_dry = ve * (meta["zmin_m"] if ANIM_SEA_FILL_FROM_M is None
+                              else ANIM_SEA_FILL_FROM_M) / 1000.0
+                z_full = ve * meta["paleo_sea_level_m"] / 1000.0
+                fill0 = lip_f + ANIM_SEA_FILL_LAG_S * ANIM_FPS
+                fill1 = min(fill0 + ANIM_SEA_FILL_S * ANIM_FPS, ANIM_FRAMES)
+                _key_loc_z(water, [(1, z_dry), (fill0, z_dry),
+                                   (fill1, z_full), (ANIM_FRAMES, z_full)], "BEZIER")
+                log(f"anim: Ionian fills {z_dry / ve * 1000:.0f} -> "
+                    f"{meta['paleo_sea_level_m']:.0f} m over frames "
+                    f"{fill0:.0f}-{fill1:.0f}, then holds "
+                    f"{(ANIM_FRAMES - fill1) / ANIM_FPS:.1f} s at the figure's level")
         else:
             log("anim: flood_advance requested but no flood sheet - falling back to a still hold")
 
