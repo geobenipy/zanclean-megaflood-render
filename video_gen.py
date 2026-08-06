@@ -149,8 +149,16 @@ def _encode_imageio(images, output, fps, crf, preset):
         "-profile:v", PROFILE,
         "-movflags", "+faststart",
     ]
+    # macro_block_size=1 is REQUIRED, not tidiness. imageio-ffmpeg defaults it to 16 and
+    # physically PADS any dimension that is not a multiple of 16 up to the next one - it does
+    # not crop it back. At 1920x1080 that silently produced a 1920x1088 file with 8 rows of
+    # replicated edge at the bottom, i.e. the wrong aspect ratio (1.765 instead of 1.778) in
+    # the deliverable. It never showed at the old 1920x1280 because 1280 = 16*80 divides
+    # exactly. With 1 the frames go through untouched and libx264 handles 1080 the way every
+    # 1080p encoder does, by coding 1088 and signalling the crop in the SPS.
     writer = iio.get_writer(str(output), fps=fps, codec="libx264", pixelformat="yuv420p",
-                            format="ffmpeg", ffmpeg_params=ffmpeg_params)
+                            format="ffmpeg", macro_block_size=1,
+                            ffmpeg_params=ffmpeg_params)
     first_shape = None
     skipped = 0
     for img_path in tqdm(images, desc="  encoding", unit="frame",
@@ -244,6 +252,31 @@ def _encode_subprocess(images, output, fps, crf, preset):
                 os.unlink(list_path)
             except OSError:
                 pass
+
+
+def _verify_dimensions(sample_frame, output):
+    """Decode one frame back out of the finished file and compare it to the source PNG.
+
+    Worth the two seconds: an encoder that quietly changes the frame size produces a file
+    that plays fine, looks nearly right, and is the wrong aspect ratio - there is no error
+    anywhere to notice. It has happened once here (imageio-ffmpeg's macro_block_size padding
+    1080 -> 1088), so the check exists to make the next occurrence loud instead of silent.
+    """
+    try:
+        src = iio.imread(str(sample_frame)).shape[:2]           # (h, w)
+        # get_reader, not imread: imread's legacy wrapper takes the plugin kwargs itself and
+        # raises "got multiple values" when handed both format= and index=
+        with iio.get_reader(str(output), format="ffmpeg") as rd:
+            got = rd.get_data(0).shape[:2]
+    except Exception as e:
+        logger.warning(f"  could not verify output dimensions ({e!s:.80})")
+        return
+    if tuple(src) != tuple(got):
+        logger.error(f"  DIMENSION MISMATCH: frames are {src[1]}x{src[0]} but the video "
+                     f"decodes to {got[1]}x{got[0]} - the encoder resized or padded them. "
+                     f"Do not submit this file.")
+    else:
+        logger.info(f"  verified: {got[1]}x{got[0]}, unchanged from the frames")
 
 
 def _encode_size_capped(images, output, fps, preset, max_mb, safety=SI_SAFETY):
@@ -342,6 +375,7 @@ def main():
 
     master_mb = OUTPUT_VIDEO.stat().st_size / 1e6
     logger.info(f"  master : {master_mb:.1f} MB")
+    _verify_dimensions(images[0], OUTPUT_VIDEO)
 
     si_path = None
     if SI_MAX_MB:
