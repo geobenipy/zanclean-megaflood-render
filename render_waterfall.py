@@ -203,7 +203,7 @@ HAZE_END_KM      = 800.0           # full HAZE_STRENGTH at/beyond this distance 
 # far edge of the DEM - the straight cut border with its lit vertical face - dissolves into
 # the sky instead of announcing itself as a cliff. Swap the comments for the overview.
 # NOTE: leaving the HERO pair active on the 448 km overview camera puts the WHOLE terrain
-# beyond HAZE_END -> full haze mix everywhere, i.e. the flat grey wash (seen in v4).
+# beyond HAZE_END -> full haze mix everywhere, i.e. a flat grey wash across the frame.
 #HAZE_START_KM    = 85.0
 #HAZE_END_KM      = 150.0
 
@@ -224,9 +224,9 @@ CLOUD_COVER      = 0.45             # noise-gate threshold = 1-COVER. The noise 
                                     # scattered field.
 CLOUD_DENSITY    = 0.65             # max shadow opacity: clouds are translucent, not plates
 CLOUD_EDGE_SOFT  = 0.14             # gate ramp half-width: bigger = softer cloud edges
-# Clear zones: keep them TIGHT. The 160 mm overview frame is only ~100 km wide, so the
-# first attempt (r 45 + 22 feather, two zones) blanketed the entire visible frame and
-# no shadow survived anywhere. Protect only the cascade/bay and two spots of the belt.
+# Clear zones: keep them TIGHT. The 160 mm overview frame is only ~100 km wide, so a
+# generous radius/feather blankets the entire visible frame and no shadow survives
+# anywhere. Protect only the cascade/bay and two spots of the belt.
 CLOUD_CLEAR_KM   = [(13.0, -6.0, 26.0),   # (x, y, radius) world km: canyon head + bay + cascade
                     (-24.0, -15.0, 18.0), # lower belt reach
                     (-58.0, -13.0, 18.0)] # mid belt reach
@@ -315,8 +315,8 @@ ANNOT_HALO_DEPTH_FRAC = 0.0015      # push behind the ink, as a fraction of the 
 # already computes from the measured waypoints above, so the label can never drift out of
 # sync with the geometry it labels.
 SCALE_LABELS         = True
-SCALE_LABEL_HEIGHT_KM = 4.8         # was 2, which printed at roughly 4 pt - see the size note
-                                     # above the dash settings
+SCALE_LABEL_HEIGHT_KM = 4.8         # see the print-size note above the dash settings - a
+                                     # smaller value prints below the journal's font-size floor
 SCALE_LABEL_GAP_KM   = 1.4          # a TRUE gap between the tick end and the nearest ink of
                                      # the text. The label is centred and then slid clear by
                                      # its own measured half-width (see _clear_label), so this
@@ -390,20 +390,21 @@ WATER_WAVE_SCALE    = 40.0          # medium-scale waves
 # --- sea realism: a large rolling SWELL layered on the chop + broad COLOUR patches, so
 # the Ionian basin reads as a living ocean, not a flat blue slab. All subtle - the sea
 # is the calm receiving basin, not the torrent.
-SEA_SWELL_STRENGTH   = 0.45         # large slow swell bump added under the chop (0 = off); was 0.30
-SEA_SWELL_SCALE      = 2.6          # swell size (SMALL number = big rolling waves); was 4.0 -
-                                    # at the 448 km overview distance the 4.0 features were
-                                    # sub-pixel and the sea rendered as a blank gradient (v9)
+SEA_SWELL_STRENGTH   = 0.45         # large slow swell bump added under the chop (0 = off)
+SEA_SWELL_SCALE      = 2.6          # swell size (SMALL number = big rolling waves) - at the
+                                    # 448 km overview distance a larger feature size goes
+                                    # sub-pixel and the sea renders as a blank gradient
 SEA_COLOR_LIGHT      = (0.10, 0.33, 0.60)   # lighter blue for the varying patches
 SEA_COLOR_VARIATION  = 0.95         # 0 = uniform WATER_COLOR; ~0.8 = strong patchiness
-SEA_COLOR_SCALE      = 0.7          # colour-patch size (small = broad ocean-scale patches); was 1.1
+SEA_COLOR_SCALE      = 0.7          # colour-patch size (small = broad ocean-scale patches)
 # --- SUN GLITTER: a fine high-frequency normal layer breaks the mirror into countless
 # wavelets so the sun reflection shatters into a glittering path (the single biggest
 # "real ocean" cue). Needs a moderate-low WATER_ROUGHNESS so the sun stays a sharp
 # highlight for the wavelets to chop up (too rough = the glitter smears into a dull sheen).
-SEA_SPARKLE_STRENGTH = 0.28         # fine wavelet normal strength (0 = off). Too high = noisy; was 0.18
-SEA_SPARKLE_SCALE    = 480.0        # wavelet frequency (BIG = fine sparkle). Was 900: sub-pixel
-                                    # at overview distance, the glitter path read as one white slab
+SEA_SPARKLE_STRENGTH = 0.28         # fine wavelet normal strength (0 = off; too high reads noisy)
+SEA_SPARKLE_SCALE    = 480.0        # wavelet frequency (BIG = fine sparkle). Too low and the
+                                    # feature goes sub-pixel at overview distance, and the
+                                    # glitter path reads as one flat white slab
 SEA_SPARKLE_DETAIL   = 3.0          # fractal octaves on the sparkle (crisper glints)
 # --- REAL WAVE GEOMETRY: bump alone can't show waves at this scale (a flat plane reflects
 # the uniform sky no matter the normal). So DISPLACE actual rolling swell into a subdivided
@@ -411,9 +412,10 @@ SEA_SPARKLE_DETAIL   = 3.0          # fractal octaves on the sparkle (crisper gl
 # breaks into a wavy field. Amplitude is VE-scaled and deliberately a bit exaggerated so it
 # reads from altitude (real 1-3 m waves would be sub-pixel).
 SEA_WAVE_GEO            = True       # False = flat plane (old behaviour)
-SEA_WAVE_GEO_STRENGTH_M = 30.0      # swell amplitude in metres (VE-scaled). 0 = flat; was 24
-SEA_WAVE_GEO_SCALE      = 2.4       # swell feature size in km (world/GLOBAL coords); was 3.5
-                                    # (barely 4 px at the overview distance - invisible)
+SEA_WAVE_GEO_STRENGTH_M = 30.0      # swell amplitude in metres (VE-scaled). 0 = flat
+SEA_WAVE_GEO_SCALE      = 2.4       # swell feature size in km (world/GLOBAL coords) - a
+                                    # larger feature is only a few px at overview distance
+                                    # and reads as invisible
 SEA_WAVE_GEO_SUBDIV     = 500       # plane subdivisions (must resolve the swell wavelength)
 
 # --- 3D megaflood sheet (real water in the corridor; needs flood_corridor.png) ---
@@ -469,10 +471,9 @@ FLOOD_SHEET_TRANSMISSION = 0.38      # light passes through to the painted flood
                                      # lower = the sheet's own dark blue asserts more. Must stay
                                      # high enough that the baked BRAIDED channel threads
                                      # (BRAID_THREADS) read through the sheet.
-FLOOD_WAVE_STRENGTH  = 0.09          # ripple bump on the flood sheet (a torrent, not glass);
-                                     # raised from 0.035 -> the approach was reading as a
-                                     # glassy mirror; some break-up makes it read as moving
-                                     # water. (0.20 was too much -> bright sky speckle.)
+FLOOD_WAVE_STRENGTH  = 0.09          # ripple bump on the flood sheet (a torrent, not glass) -
+                                     # too low and the approach reads as a glassy mirror, too
+                                     # high (>~0.2) and the sky speckles unrealistically bright
 FLOOD_WAVE_SCALE     = 90.0          # ripple scale (bigger = finer chop at scene scale)
 # broad rolling SWELL under the fine ripple: gives the flood sheet undulating relief so it
 # reads as a moving water body instead of a flat glassy mirror (the fine ripple alone left
@@ -1345,8 +1346,8 @@ def _flood_sheet_material(obj, corr_path, sea_z_km=None, merge_km=0.0):
             pass
         hadd = nt.nodes.new("ShaderNodeMath")
         hadd.operation = "MULTIPLY_ADD"          # height = foam * 0.25 + noise
-        hadd.inputs[1].default_value = 0.25      # was 0.6: foam-driven raised ridges
-                                                 # caught the sky as hard white scratches
+        hadd.inputs[1].default_value = 0.25      # kept low: a stronger foam-driven ridge
+                                                 # catches the sky as hard white scratches
         nt.links.new(sep.outputs["Blue"], hadd.inputs[0])
         nt.links.new(noise.outputs["Fac"], hadd.inputs[2])
         bump = nt.nodes.new("ShaderNodeBump")

@@ -156,12 +156,12 @@ DEPRESSION_MAX_M = 90.0              # only depressions whose TOTAL enclosure is
                                      # ~800 m deep by the canyon-head sill - painting its
                                      # rim contours would re-create the rejected inland-
                                      # lake look. Local pans only.
-PLAYA_MIN_AREA_KM2 = 2.5             # bake v1 had no size filter -> white CONFETTI: thousands
-                                     # of pixel-scale terrace pits painted as pans. Real
-                                     # playas are the big flats only.
-PLAYA_ABOVE_SEA_M  = 30.0            # pans only ABOVE paleo sea level + this margin. Bake v1
-                                     # painted the deep Ionian floor (invisible under the sea
-                                     # plane anyway) and dropped white/teal blobs at the
+PLAYA_MIN_AREA_KM2 = 2.5             # size filter: without it, thousands of pixel-scale
+                                     # terrace pits paint as white confetti. Real playas
+                                     # are the big flats only.
+PLAYA_ABOVE_SEA_M  = 30.0            # pans only ABOVE paleo sea level + this margin -
+                                     # otherwise the deep Ionian floor (invisible under the
+                                     # sea plane anyway) drops white/teal blobs at the
                                      # escarpment foot right beside the plunge.
 FACIES_BELOW_M   = -40.0             # playas/pools only below this elevation (exposed
                                      # seafloor facies - not the modern Sicilian uplands)
@@ -206,8 +206,8 @@ BRAID_THRESH       = 0.15            # signed-field level where a dark thread st
 BRAID_SHEET_FOAM   = 0.22            # carry the BARS into the corridor's B (foam) channel
                                      # at this level: the 3D sheet itself lightens there,
                                      # so the braid reads at ANY distance - the bed paint
-                                     # alone could not get through the semi-transparent
-                                     # sheet in the far field (measured on render v7).
+                                     # alone cannot get through the semi-transparent sheet
+                                     # in the far field.
 
 # ---- FLOOD along the canyon (hero shot): the megaflood as a real RIVER network
 # (D8 flow accumulation along the thalweg) plus the flooded basin, baked into the
@@ -268,7 +268,8 @@ MEGAFLOOD_PATH_UNITS = "crs"    # CRS metres: crop-independent, same route for t
 
 # Waypoints ALONG the flood, ordered SOURCE (Gibraltar/inlet) -> PLUNGE, (x_east, y_north)
 # EPSG:32633 metres. Route found by a minimax/least-rise search (Dijkstra, cost = highest
-# cell crossed), constrained to hug the Sicilian margin. RETRACE via colormap.png if the DEM changes.
+# cell crossed), constrained to hug the Sicilian margin - the route is measured, not
+# eyeballed. RETRACE via colormap.png if the DEM changes.
 MEGAFLOOD_PATH = [
     (366000, 4096000),  # 0  NW inlet OUTSIDE the grid (start-cap artefacts stay off-map)
     (391200, 4090000),  # 1  enters the frame (~-450 m)
@@ -318,24 +319,24 @@ MEGAFLOOD_FEATHER_KM = 16.0
 # to the corridor fall dry within a few km, deep source basins to the west keep
 # flooding for tens of km, and the falling cascade profile cannot drape sideways
 # along the escarpment. 0 = hard envelope clip (weight * waterline).
-MEGAFLOOD_EDGE_DROP_PER_KM = 130.0  # back up from the 60 that was tried for a softer shoreline.
-                                    # Steep = the sinking surface cuts within ~0.5 km of the rim,
-                                    # so the shoreline is set by the TERRAIN (valleys flood,
-                                    # ridges stay dry) rather than by a long grazing intersection.
-                                    # 20-50 = milky film / km-long glassy levee ramp.
+MEGAFLOOD_EDGE_DROP_PER_KM = 130.0  # steep: the sinking surface cuts within ~0.5 km of the
+                                    # rim, so the shoreline is set by the TERRAIN (valleys
+                                    # flood, ridges stay dry) rather than by a long grazing
+                                    # intersection. 20-50 = milky film / km-long glassy levee
+                                    # ramp; too shallow to use here.
 
 # --- ORGANIC CORRIDOR RIM ---
 # Wobble the half-width with a smooth low-frequency noise so the rim is never an exact offset
-# of the polyline. This was originally the attempted cure for the ruler-straight shoreline;
-# it is NOT - that is fixed structurally, by opening the upstream half-widths until the
-# envelope no longer binds (see MEGAFLOOD_HALFWIDTH_KM). What remains here is cosmetic: the
-# envelope still binds at the LIP and the PLUNGE (half-widths 8-14 km), and a slight meander
-# keeps the falling front and the plume from having machined edges.
+# of the polyline. The ruler-straight shoreline itself is fixed structurally, by opening the
+# upstream half-widths until the envelope no longer binds (see MEGAFLOOD_HALFWIDTH_KM) - this
+# wiggle is purely cosmetic, for where the envelope still binds (the LIP and the PLUNGE,
+# half-widths 8-14 km): a slight meander keeps the falling front and the plume from having
+# machined edges.
 # Keep it MODEST: the lip's 9 km half-width is tuned so the cascade cannot drape into the side
 # gully ~15 km off-axis, and a large wiggle would eat into that margin.
-MEGAFLOOD_EDGE_WIGGLE     = 0.25   # fractional half-width modulation (0 = exact offset). The
-                                   # envelope IS binding again now that the corridor is back, so
-                                   # this is what keeps the flow front from being a drawn ribbon.
+MEGAFLOOD_EDGE_WIGGLE     = 0.25   # fractional half-width modulation (0 = exact offset);
+                                   # keeps the flow front from being a drawn ribbon wherever
+                                   # the envelope binds
 MEGAFLOOD_EDGE_WIGGLE_KM  = 12.0   # wavelength (km) of the meander
 
 # Whitewater band (km) painted upslope of the basin rim where the flood goes over.
@@ -1511,7 +1512,7 @@ def compute_megaflood(arr, pixel_m, transform):
     # flats read as "steep" (see MEGAFLOOD_CASCADE_GATE_SMOOTH_M) - and beyond the
     # rim the artificial EDGE_DROP (0.13 m/m) reads as a cascade. Both painted
     # cloudy foam BLOBS all over the racing belt when the foam still keyed on the
-    # raw post-drop surface (the belt's "camouflage" look, facies bakes v1/v2).
+    # raw post-drop surface (a "camouflage" mottle over the whole belt).
     zw_big = gaussian_filter(zwater,
                              MEGAFLOOD_CASCADE_GATE_SMOOTH_M / pixel_m).astype("float32")
     gyc, gxc = np.gradient(zw_big, pixel_m); del zw_big
@@ -1714,8 +1715,8 @@ def compute_megaflood(arr, pixel_m, transform):
             # gate to the CASCADE: the relief map also carries the LAKE SWELL on the
             # calm/racing water, and ungated crest foam whitened every 9 m swell
             # crest (9/55 x 0.9 ~ 0.15) into km-scale pale clouds over the whole
-            # belt - the "camouflage" mottle of the facies bakes v1-v3. Only the
-            # chute's rollers break; swell does not.
+            # belt - a "camouflage" mottle. Only the chute's rollers break; swell
+            # does not.
             if cascade_gate is not None:
                 crest *= cascade_gate
             foam = np.maximum(foam, (MEGAFLOOD_CREST_FOAM * crest
@@ -2021,7 +2022,7 @@ def write_colormap(path, arr, pixel_m, ve, scheme, coverage=None,
             del hp
             # gate slope from the LARGE-SCALE surface (same 1.5 km lesson as the
             # cascade gate): at 600 m the racing sheet's bed bumps kept the gate
-            # shut over most of the belt and no threads appeared (bake v2)
+            # shut over most of the belt and no threads appeared
             zs = gaussian_filter(zwater, MEGAFLOOD_CASCADE_GATE_SMOOTH_M / pixel_m)
             gy, gx = np.gradient(zs, pixel_m); del zs
             sl = np.hypot(gx, gy).astype("float32"); del gx, gy
