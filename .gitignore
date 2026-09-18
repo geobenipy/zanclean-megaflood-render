@@ -13,3 +13,8 @@ __pycache__/
 # run logs
 *.log
 *.err
+
+# editor / tool-local settings
+
+.vscode/
+.idea/

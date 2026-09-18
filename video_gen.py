@@ -22,13 +22,13 @@ from tqdm import tqdm
 # =============================================================================
 
 # Where render_waterfall.py's ANIM_DIR wrote the frames (its default is DATA_DIR/anim).
+# Keep each render pass in its own folder: ANIM_RESUME matches frames by NUMBER only, so
+# pointing a fresh pass at a folder from an older pass silently mixes frame sets instead
+# of failing.
 INPUT_FOLDER = Path(
     r"."
-    r"\output_final\anim_16x9"
+    r"\output_final\anim_16x9_v5"
 )
-# The 3:2 clip's frames are in output_final\anim next door. Keep the two apart: both number
-# their frames from 1, so a folder mix-up produces a video that silently changes aspect ratio
-# partway through rather than failing.
 
 OUTPUT_VIDEO = INPUT_FOLDER / "zanclean_flood.mp4"
 

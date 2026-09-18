@@ -40,7 +40,13 @@ from mathutils import Vector, Matrix
 # =====================================================================
 # CONFIG
 # =====================================================================
-DATA_DIR   = r"output_overview_old\output_overview"
+DATA_DIR   = r"output_overview"
+# DATA_DIR = r"output_overview_old\output_overview"
+                                     # ^ older merge, kept as a fallback. The active line adds
+                                     # MEGAFLOOD_SEA_GRACE_M so the corridor/flood-sheet mask
+                                     # reaches the plunge->basin waypoints instead of being
+                                     # zeroed at the sea cutoff - see MEGAFLOOD_SEA_GRACE_M in
+                                     # merge_paleo_dem.py.
 OUTPUT_PNG = r"output_final\render_waterfall_v18.png"
                                      # the submitted Fig-3b panel. The Extended-Data twin is
                                      # the same run with SHOW_WATER / SHOW_FLOOD_SHEET /
@@ -50,10 +56,17 @@ OUTPUT_PNG = r"output_final\render_waterfall_v18.png"
 QUIET = True                         # clean output: one progress bar + summary. False = verbose debug logs
 
 # --- terrain ---
-SUBDIVISIONS = 2400                  # grid resolution (cuts per side). 600-1000 for drafts;
-                                     # raise toward 3200 for finals if the cascade rollers
-                                     # (MEGAFLOOD_ROLLER_LAMBDA_M) round into puffy pillows -
-                                     # the quad size must resolve their wavelength
+SUBDIVISIONS = 1600                  # grid resolution (cuts per side). 600-1000 for drafts;
+                                     # capped at 1600 here, not raised toward 2400-3200 for
+                                     # crisper cascade rollers (MEGAFLOOD_ROLLER_LAMBDA_M),
+                                     # because this machine only has 16 GB RAM with its
+                                     # pagefile on a slow HDD (no admin rights to relocate it).
+                                     # At 2400 a full 4800x3200/256spp Cycles render reliably
+                                     # exhausted memory and took the whole OS down mid-render -
+                                     # 3 unexpected-shutdown events (Kernel-Power ID 41) in two
+                                     # days, not just a Blender crash. 1600 is the highest value
+                                     # verified end-to-end without one. Raise it again only on a
+                                     # machine with more RAM or a faster pagefile disk.
 VE           = 3                     # regional overview
 # VE         = None                  # None = ve_hint from metadata (hero merge writes 5)
 
@@ -203,7 +216,7 @@ HAZE_END_KM      = 800.0           # full HAZE_STRENGTH at/beyond this distance 
 # far edge of the DEM - the straight cut border with its lit vertical face - dissolves into
 # the sky instead of announcing itself as a cliff. Swap the comments for the overview.
 # NOTE: leaving the HERO pair active on the 448 km overview camera puts the WHOLE terrain
-# beyond HAZE_END -> full haze mix everywhere, i.e. the flat grey wash (seen in v4).
+# beyond HAZE_END -> full haze mix everywhere, i.e. a flat grey wash.
 #HAZE_START_KM    = 85.0
 #HAZE_END_KM      = 150.0
 
@@ -323,15 +336,16 @@ SCALE_LABEL_GAP_KM   = 1.4          # a TRUE gap between the tick end and the ne
                                      # no longer has to be guessed against the string length -
                                      # which is how the bar previously ran through its own
                                      # number when the text grew.
-SCALE_VERTICAL_LABEL   = None       # None = auto "~{drop_m/1000:.1f} km"; string overrides
+SCALE_VERTICAL_LABEL   = "~2 km"    # explicit string so the label has no decimal point.
+                                     # None = auto "~{drop_m/1000:.1f} km"; string overrides
 SCALE_HORIZONTAL_LABEL = "~20 km"   # the manuscript's own wording ("more than 20 km wide"),
                                      # not the bar's own ~17.5 km straight-chord length -
                                      # this only overrides what's PRINTED, not the geometry
 
 # --- geological / topographic place-names: flat billboarded text (always faces the camera),
-# same dark ink as the scale bars, only THREE of them. Positions are PROBED against
-# merged_paleo_dem.tif and confirmed in-frame via world_to_camera_view, not eyeballed.
-# Terms and siting follow the manuscript directly:
+# same dark ink as the scale bars. Positions are PROBED against merged_paleo_dem.tif and
+# confirmed in-frame via world_to_camera_view, not eyeballed. Terms and siting follow the
+# manuscript directly:
 #   - "Sicily Sill": the broad near-planar shelf landward of the canyon rim, on dry
 #     (desiccated) ground - the whole sill was subaerially exposed during the MSC.
 #   - "Hyblean Plateau": the uplifted foreland domain forming Sicily's southern margin -
@@ -341,10 +355,10 @@ SCALE_HORIZONTAL_LABEL = "~20 km"   # the manuscript's own wording ("more than 2
 #   - "Ionian Basin": the receiving abyssal plain the flood empties into - sited in open
 #     deep water SE of the plunge, clear of the corridor/plume. Excluded from glossy rays
 #     (GEO_LABEL_NO_REFLECTION) so it doesn't mirror in the sea below it.
-# Deliberately NOT labelled: "Noto Canyon"/"Malta Escarpment". The canyon is the render's own
-# subject (a label would compete with the scale bars sitting right on it), and the manuscript
-# is explicit that only the Noto Canyon - not the Malta Escarpment generally - carries
-# megaflood evidence, so naming the escarpment risks implying the wrong thing.
+#   - "Noto Canyon" / "Malta Escarpment": sited directly on the visible rock, not the
+#     real-world crest coordinates, so each label sits on the feature it names.
+#   - "Zanclean Flood Corridor": labels the flood route itself, so a reader can tell it's
+#     the (hypothetical) megaflood path rather than a modern strait.
 GEO_LABELS = True
 GEO_LABEL_HEIGHT_KM      = 3.6      # kept a step BELOW the scale labels: the place-names are
                                      # orientation, the scale bars carry the measurement, and
@@ -355,10 +369,30 @@ GEO_LABEL_CAMERA_PULL_KM = 3.0      # same trick as the scale bars - guarantees 
 GEO_LABEL_NO_REFLECTION  = True     # hide these from glossy/reflection rays; camera rays
                                      # still see the label normally
 GEO_LABELS_LIST = [
-    # (display text, x_m, y_m, elev_m) - UTM33N, elev_m read from merged_paleo_dem.tif
+    # (display text, x_m, y_m, elev_m) - UTM33N, elev_m read from merged_paleo_dem.tif.
+    # Each anchor is placed by projecting a candidate point through the actual camera
+    # (world_to_camera_view), rendering it, and checking the measured on-screen text
+    # position - not the raw projection, which lands ~50-90 px off from the glyphs
+    # themselves - against the scale-bar ink and the neighbouring labels. A clear
+    # sightline to the ANCHOR is not enough: occlusion is checked across the full span
+    # of the rendered text (a single-point or endpoint-only check can miss a nearer
+    # ridge under the middle of a long label), and the halo (a separate object pushed
+    # further back by ANNOT_HALO_DEPTH_FRAC) needs its own clearance check since a
+    # margin that clears the ink can still sit behind a more distant halo.
     ("Sicily Sill",     506347.5, 4043169.0,   -70.5),
     ("Hyblean Plateau", 475000.0, 4095000.0,   779.4),
     ("Ionian Basin",    555000.0, 4060000.0, -2907.0),
+    # Sits just above the vertical scale bar, labelling the canyon itself.
+    ("Noto Canyon",     531911.0, 4091826.0,   -376.4),
+    # On the escarpment's own visible cliff face (the dark rock-material wall dropping
+    # from the Hyblean Plateau into the Ionian, right of the canyon), not the crest
+    # coordinates further west - siting it on the visible feature rather than the
+    # real-world crest keeps the label from floating off the rendered geometry.
+    ("Malta Escarpment", 533776.0, 4047458.0,  -304.0),
+    # Labels the blue corridor itself, since without this a reader can't tell it's the
+    # (hypothetical) Zanclean flood route rather than a modern strait. Sited upstream,
+    # still on-corridor water (colour (9,18,36), navy).
+    ("Zanclean Flood Corridor", 482260.0, 4062825.0,   13.0),
 ]
 
 # --- north arrow ---------------------------------------------------------------------------
@@ -426,6 +460,32 @@ SEA_WAVE_GEO_SUBDIV     = 500       # plane subdivisions (must resolve the swell
 SHOW_FLOOD_SHEET     = True
 FLOOD_SHEET_ZBIAS_M  = 2.0           # tiny lift to avoid z-fighting at the waterline
                                      # (the real water depth is baked into the surface)
+# The sheet mesh is CROPPED to the wet corridor's own bounding box (flood_sheet_bbox_uv,
+# written by the merge - see _SHEET_META in merge_paleo_dem.py) instead of spanning the
+# whole regional frame like the terrain does. The corridor is a small fraction of a
+# 280x200 km overview, so the old full-extent grid spent the same SUBDIVISIONS cuts on
+# invisible dry land as on the water - which is what forced a choice on this 16 GB machine
+# between a crash (SUBDIVISIONS high enough to resolve MEGAFLOOD_LAKE_SWELL_M/
+# ROLLER_LAMBDA_M) and an under-resolved, milky calm-water surface (SUBDIVISIONS low
+# enough to fit in RAM). Cropping decouples the two: the same vertex budget now buys a far
+# finer quad size where the water actually is, independent of the terrain's own
+# SUBDIVISIONS. Falls back to the old full-extent behaviour if an older merge run has no
+# flood_sheet_bbox_uv in its metadata.
+FLOOD_SHEET_TARGET_QUAD_M = 60.0     # PREFERRED mesh quad size (m) inside the crop - clears
+                                     # MEGAFLOOD_ROLLER_LAMBDA_M (950 m, ~16 quads/wavelength)
+                                     # and MEGAFLOOD_LAKE_SWELL_KM (2.5 km) comfortably
+FLOOD_SHEET_MIN_SUBDIV  = 400        # floor, in case the corridor bbox is tiny (hero crop)
+FLOOD_SHEET_MAX_VERTS   = 2_600_000  # hard cap on cuts_x*cuts_y, not a per-axis cut count -
+                                     # a per-axis cap alone doesn't bound total memory when
+                                     # the bbox is a very different shape than the frame (the
+                                     # video merge's MEGAFLOOD_SEA_GRACE_M reaches deep into
+                                     # the basin, so its bbox is far bigger than the still's).
+                                     # 2.6 M ~= a full-frame 1600x1600 grid, a flood-sheet vertex
+                                     # count already proven to render without crashing - so
+                                     # cropping only ever trades that SAME budget for a finer
+                                     # quad, never spends more of it. If the target quad would exceed the
+                                     # budget, both axes are scaled down together so quads
+                                     # stay square instead of clamping one axis independently.
 # --- WHERE THE CASCADE MEETS THE SEA -----------------------------------------------------
 # The flood sheet and the sea are two different materials (the sheet is darker, rougher, and
 # carries the corridor's foam streaks; the sea is lighter, glossier and colour-patched). Out
@@ -440,10 +500,38 @@ FLOOD_SHEET_ZBIAS_M  = 2.0           # tiny lift to avoid z-fighting at the wate
 # invisibly; the plume is the physically expected signature and it dissolves the seam.
 FLOOD_SEA_MERGE_M    = 140.0        # height band (m) over which the sheet dissolves into the sea
 SEA_PLUME            = True         # turbid outflow plume on the sea, from the corridor mask
+SEA_PLUME_CORRIDOR_PNG = (r"."
+                          r"\output_overview_old\output_overview\flood_corridor.png")
+                                    # None = use the same corridor mask as the flood sheet
+                                    # (meta['flood_corridor_png'] in DATA_DIR). Pinned here to
+                                    # the PRE-MEGAFLOOD_SEA_GRACE_M mask on purpose: that grace
+                                    # value now lets the corridor's R channel (coverage) stay
+                                    # 255 far into the deep basin so flood_advance has an
+                                    # outflow to reveal (see merge_paleo_dem.py) - but this
+                                    # same R channel ALSO drives the sea's OWN turbidity tint,
+                                    # and the tint was only ever tuned for the OLD, narrow
+                                    # ~19 km2 near-shore extent. Painting it across the whole
+                                    # newly-reachable basin ramped SEA_PLUME_ROUGH (0.55) over
+                                    # a huge area, and a rough surface under a bright sky at a
+                                    # grazing angle reads as a flat, uniformly-lit white slab -
+                                    # the same failure mode this file already documents for
+                                    # under-geometried water elsewhere. Pointing the PLUME
+                                    # specifically at the old mask keeps its footprint exactly
+                                    # what it was in the last clean clip, independent of how
+                                    # far the flood sheet's own mask now reaches.
 SEA_PLUME_COLOR      = (0.30, 0.40, 0.42)   # sediment-laden water: pale desaturated blue-grey
 SEA_PLUME_STRENGTH   = 0.85         # max mix toward the plume colour inside the corridor
 SEA_PLUME_ROUGH      = 0.55         # the plume is churned + turbid: it kills the sea's gloss,
                                     # which is what makes it read as suspended load and not paint
+SEA_PLUME_ALONG_ON   = 0.80         # along-route fraction (mask G channel) where the plume
+SEA_PLUME_ALONG_FULL = 0.88         # starts fading in / reaches full strength. The corridor's
+                                    # R (coverage) channel is 255 the whole route, including the
+                                    # calm Sicily-hugging approach belt (measured: along~0.72,
+                                    # zero foam there) - gating by coverage alone painted a
+                                    # second turbid "plume" patch at that coastal bend, far from
+                                    # any real outflow. The true plunge sits at along~0.906
+                                    # (LIP_ALONG); ON/FULL sit just below it so the plume is
+                                    # already at full strength by the lip, not still ramping in.
 
 FLOOD_SHEET_COLOR    = (0.03, 0.12, 0.28)   # turbid flood blue (dark - most colour comes
                                             # from the painted terrain showing through)
@@ -573,13 +661,17 @@ ANIM_FORMAT  = "PNG"                # "PNG" (frame sequence -> video_gen.py) | "
                                     # ANIM_RESUME), and PNG frames can be re-graded/re-encoded
                                     # for whatever format the journal asks for.
 ANIM_DIR     = (r"."
-                r"\output_final\anim_16x9")
-                                    # None = DATA_DIR/anim. Named explicitly here because the
-                                    # 3:2 clip's 750 frames still exist next door: ANIM_RESUME
-                                    # matches on frame NUMBER, so pointing a 16:9 run at that
-                                    # folder would "resume" it and quietly keep 3:2 frames.
-                                    # (_check_resume_frames warns, but a separate folder means
-                                    # the situation cannot arise.)
+                r"\output_final\anim_16x9_v4")
+                                    # Explicit, versioned folder rather than a default: ANIM_RESUME
+                                    # matches frames by NUMBER only, so pointing a run with new
+                                    # settings (a route change, a label fix, a mist fix, an aspect
+                                    # ratio change...) at a folder holding an old frame set would
+                                    # silently "resume" and keep the stale frames instead of
+                                    # re-rendering them. A fresh folder per settings change avoids
+                                    # that entirely; keep the previous one as a fallback until the
+                                    # new run is verified end to end. (_check_resume_frames also
+                                    # warns if a folder's frames were rendered at a different
+                                    # resolution.)
 FLOOD_RISE_FROM_M = -3500.0         # flood_rise: start level (deep) -> rises to paleo_sea_level_m
 
 # Per-frame quality. The still is 4800x3200 / 256 spp and takes ~2 h; multiplied by several
@@ -602,34 +694,28 @@ ANIM_RES_X, ANIM_RES_Y = 1920, 1080  # 16:9, which is what Nature asks for (4:3 
                                      # buys is far more visible than the sharpness gained. It is
                                      # not cheap either: 2304x1536 measured ~1.45x the cost per
                                      # frame, i.e. exactly its pixel ratio.
-ANIM_SAMPLES        = 96             # MEASURED, not guessed. Frame 450 was rendered at 96 and
-                                     # at 64 spp and compared 1:1 at the cascade - where the
-                                     # spray volume makes noise most likely - and the two are
-                                     # indistinguishable: the denoiser carries it. 64 was what a
-                                     # weekend budget could afford; with a week the margin is
-                                     # free, so this sits one step above the point where the
-                                     # difference stopped being visible rather than exactly on
-                                     # it. Going below ~48 starts to risk frame-to-frame
-                                     # denoiser flicker, which is far more objectionable in
-                                     # motion than static noise ever is. Above ~96 there is
-                                     # nothing left to buy - see ANIM_RES_* for why the spare
-                                     # time should not go into pixels either.
+ANIM_SAMPLES        = 96             # A render at 96 spp and one at 64 spp are indistinguishable
+                                     # 1:1 at the cascade, where the spray volume makes noise most
+                                     # likely - the denoiser carries it. This sits one step above
+                                     # that point rather than exactly on it, since the time budget
+                                     # allows it. Below ~48 spp risks frame-to-frame denoiser
+                                     # flicker, far more objectionable in motion than static noise.
+                                     # Above ~96 there is nothing left to buy - see ANIM_RES_* for
+                                     # why the spare time should not go into pixels either.
 ANIM_DENOISE        = True
-ANIM_MIST_STEP_RATE = 0.5            # the still's value. It was raised to 1.0 (coarser volume
-                                     # steps) purely to fit a weekend; the spray box is the most
-                                     # expensive thing in the scene, so it was the first thing
-                                     # to cut. Measured at 96 spp / 1920x1280 the fine steps
-                                     # cost 6.3 min/frame all in - a 30 s clip in ~79 h - so the
-                                     # compromise is not worth keeping.
+ANIM_MIST_STEP_RATE = 0.5            # the still's value - fine volume steps. The spray box is the
+                                     # most expensive thing in the scene, so raising this (coarser
+                                     # steps, less time) is the first lever if the render budget is
+                                     # tight, but at 96 spp / 1920x1280 the fine steps already cost
+                                     # ~6.3 min/frame all-in, which is affordable for this clip.
 ANIM_PERSISTENT_DATA = False         # keep the synced scene + BVH between frames instead of
-                                     # rebuilding them. It LOOKS like the obvious win here -
-                                     # nothing in this animation moves in geometry - but it was
-                                     # measured and it is not: 7.55 / 7.97 min per frame with
-                                     # it, against 7.6 / 8.3 min without, i.e. inside the noise.
-                                     # Essentially all the cost is path tracing, not scene sync.
-                                     # It holds the memory for the whole run for that nothing,
-                                     # so it stays OFF. Do not re-try it expecting a speed-up;
-                                     # cut ANIM_SAMPLES, ANIM_RES_* or ANIM_SECONDS instead.
+                                     # rebuilding them. Looks like an obvious win since nothing in
+                                     # this animation moves in geometry, but measured per-frame
+                                     # cost with it on vs off is within noise of each other -
+                                     # essentially all the cost is path tracing, not scene sync -
+                                     # while it holds the memory for the whole run for nothing, so
+                                     # it stays off. Cut ANIM_SAMPLES, ANIM_RES_* or ANIM_SECONDS
+                                     # instead for a speed-up.
 
 # A weekend-long unattended run WILL be interrupted (crash, reboot, full disk). With this on,
 # re-launching the very same command skips every frame already written and carries on where it
@@ -649,15 +735,19 @@ ANIM_ADVANCE_S    = 12.0             # the remainder of the clip is the cascade 
                                      # length went. The reveal did not need to be slower; the
                                      # subject needed longer on screen.
 ANIM_ADVANCE_EASE = True             # smooth start/stop instead of a mechanical linear ramp
-ANIM_ADVANCE_FROM = 0.55             # the reveal starts HERE, not at 0. The corridor's
+ANIM_ADVANCE_FROM = 0.32             # the reveal starts HERE, not at 0. The corridor's
                                      # along-path coordinate is normalised over the WHOLE
                                      # route, most of which is off to the west behind the
                                      # camera, so a reveal from 0 spends its first seconds
-                                     # flooding ground nobody can see. Measured by rendering
-                                     # fixed FLOOD_ADVANCE values: the front first appears in
-                                     # the top-left of this framing at ~0.58, and 0.55 is
-                                     # still a completely dry frame. Re-measure this if
-                                     # MEGAFLOOD_PATH or the camera changes.
+                                     # flooding ground nobody can see. `along` is cumulative-
+                                     # distance/total-length, so every waypoint's along-value
+                                     # shifts whenever the route's total length changes (e.g. a
+                                     # rerouted outflow tail) - re-measure this whenever
+                                     # MEGAFLOOD_PATH or the camera changes, by scaling the old
+                                     # value by the LIP_ALONG ratio and confirming against a
+                                     # true frame-1 render through the real ANIMATE=True path
+                                     # (see LIP_ALONG's comment on why ANIMATE=False can't be
+                                     # used for this measurement).
 
 # --- the Ionian starts DESICCATED and fills ------------------------------------------------
 # The still shows the sea already standing at PALEO_SEA_LEVEL_M (-2200 m), which is a lowstand
@@ -666,11 +756,10 @@ ANIM_ADVANCE_FROM = 0.55             # the reveal starts HERE, not at 0. The cor
 # the fill on, frame 1 is a bone-dry Mediterranean and the sea rises only once the torrent goes
 # over the lip - which is the event the figure is about.
 #
-# This costs nothing in the merge, for two measured reasons: the sea floor is already painted
-# as DRY ground in both colormaps (identical RGB in colormap.png and colormap_dry.png), and the
-# flood sheet reaches only 19 km2 past the shoreline, all of it already inside its
-# FLOOD_SEA_MERGE_M dissolve band - so taking the sea away leaves no water slab hanging over
-# the empty basin. Verified by rendering the same scene at -3700 / -3200 / -2200 m.
+# This costs nothing in the merge: the sea floor is already painted as DRY ground in both
+# colormaps (identical RGB in colormap.png and colormap_dry.png), and the flood sheet's own
+# reach past the shoreline stays inside its FLOOD_SEA_MERGE_M dissolve band - so taking the sea
+# away leaves no water slab hanging over the empty basin.
 ANIM_SEA_FILL        = True
 ANIM_SEA_FILL_FROM_M = None          # start level; None = the frame's own zmin_m, i.e. the plane
                                      # sits exactly at the lowest ground so there is no water
@@ -704,13 +793,13 @@ ANIM_FLOW_DIR_DEG   = 100.0          # compass bearing the torrent FLOWS TOWARD 
 #   (Generated coordinates span the object, hence the division by its width; the sea plane is
 #    WATER_MARGIN = 2.5 times the terrain.)
 #
-# The first pass guessed 3.2 / 0.35 / 0.45 and a 120-frame test showed why that was wrong: the
-# frame-to-frame difference over the open sea and the corridor was indistinguishable from the
-# static terrain, i.e. nothing visibly moved. Those values used 2-8 % of the ceiling. These use
-# 15-25 %, which is visible motion with a 4x margin against strobing.
+# A speed using only 2-8% of the ceiling reads as no motion at all (indistinguishable
+# frame-to-frame from static terrain); these sit at 15-25%, visible motion with a 4x margin
+# against strobing.
 ANIM_FLOW_KM_S      = 10.0           # ~26 % of the sheet's aliasing ceiling
 ANIM_SEA_KM_S       = 2.5            # the Ionian is the calm receiving basin - it should still
-                                     # only crawl, but 0.35 was literally imperceptible
+                                     # only crawl, but slow enough to be imperceptible defeats
+                                     # the point
 # Label anchors that only the 16:9 crop needs. Keyed by the label's text; the value replaces
 # that entry's (x_m, y_m, elev_m) in GEO_LABELS_LIST for the animation only, so the printed
 # figure keeps the anchors it was published with.
@@ -758,8 +847,8 @@ ANIM_CLOUD_KM_S     = 3.0            # cloud shadows drifting downwind over the 
                                      # that moves ground which is otherwise completely static.
                                      # Sized against CLOUD_SCALE_KM (38 km): at 3 km/s a shadow
                                      # crosses the ~100 km frame in about half a minute, which
-                                     # is weather. The first pass used 0.45 and a shadow moved
-                                     # 11 km in the entire clip - invisible.
+                                     # is weather; much slower and the drift is imperceptible
+                                     # over the clip's length.
 
 ANIM_CAMERA       = "push"           # "static" | "push"
 ANIM_PUSH_LENS_MM = 186.0            # "push": a slow zoom CAM_LENS_MM -> this. Zooming IN only:
@@ -1297,9 +1386,15 @@ def _water_material_real(water, meta=None):
     # the DEM footprint before the mask lines up.
     corr = meta.get("flood_corridor_png") if meta else None
     if SEA_PLUME and SEA_PLUME_STRENGTH > 0 and corr and base_out is not None:
-        path = os.path.join(DATA_DIR, corr)
+        # see SEA_PLUME_CORRIDOR_PNG: deliberately NOT the same mask the flood sheet now
+        # uses, once MEGAFLOOD_SEA_GRACE_M has widened that one far into the basin.
+        path = SEA_PLUME_CORRIDOR_PNG or os.path.join(DATA_DIR, corr)
         if os.path.exists(path):
-            cimg = bpy.data.images.load(path)
+            # check_existing: when this path is the SAME file the flood sheet already
+            # loaded (see SEA_PLUME_CORRIDOR_PNG), reuse that ~90-megapixel image instead
+            # of a second float-RGBA copy (~1.4 GB) - this machine is memory-starved enough
+            # for that alone to be the difference between finishing and thrashing.
+            cimg = bpy.data.images.load(path, check_existing=True)
             try:
                 cimg.colorspace_settings.name = "Non-Color"
             except Exception:
@@ -1322,12 +1417,34 @@ def _water_material_real(water, meta=None):
             csep = nt.nodes.new("ShaderNodeSeparateColor")
             nt.links.new(ctex.outputs["Color"], csep.inputs["Color"])
 
+            # gate by ALONG (G channel), not just coverage (R): R=255 the whole length of
+            # the corridor, including the calm Sicily-hugging approach belt (measured: R=255,
+            # B=0 foam at the coastal "controlling sill" bend, along~0.72) - keying the plume
+            # on coverage alone painted a second turbid patch there, far from any real outflow.
+            # Restrict it to near the actual plunge (along~0.906, see LIP_ALONG) and beyond,
+            # same fix already used for the mist plume's MEGAFLOOD_MIST_LIP_WINDOW.
+            pgate = nt.nodes.new("ShaderNodeMapRange")
+            pgate.inputs["From Min"].default_value = float(SEA_PLUME_ALONG_ON)
+            pgate.inputs["From Max"].default_value = float(SEA_PLUME_ALONG_FULL)
+            pgate.inputs["To Min"].default_value = 0.0
+            pgate.inputs["To Max"].default_value = 1.0
+            try:
+                pgate.clamp = True
+            except AttributeError:
+                pass
+            nt.links.new(csep.outputs["Green"], pgate.inputs["Value"])
+
+            pcov = nt.nodes.new("ShaderNodeMath")
+            pcov.operation = "MULTIPLY"; pcov.use_clamp = True
+            nt.links.new(csep.outputs["Red"], pcov.inputs[0])
+            nt.links.new(pgate.outputs["Result"], pcov.inputs[1])
+
             pfac = nt.nodes.new("ShaderNodeMath")
             pfac.name = "sea_plume_strength"   # animation handle: the plume must not already
                                                # stain the Ionian before the flood reaches it
             pfac.operation = "MULTIPLY"; pfac.use_clamp = True
             pfac.inputs[1].default_value = float(SEA_PLUME_STRENGTH)
-            nt.links.new(csep.outputs["Red"], pfac.inputs[0])
+            nt.links.new(pcov.outputs["Value"], pfac.inputs[0])
 
             pmix = nt.nodes.new("ShaderNodeMixRGB")
             pmix.inputs["Color2"].default_value = (*SEA_PLUME_COLOR, 1)
@@ -1426,13 +1543,67 @@ def make_flood_sheet(meta, ve, width_km, height_km):
         return None
 
     zmin, zmax = meta["zmin_m"], meta["zmax_m"]
+
+    # crop to the wet corridor's own bbox (see FLOOD_SHEET_TARGET_QUAD_M above) if the
+    # merge exported one; otherwise fall back to the old full-frame grid.
+    crop = None
+    bbox = meta.get("flood_sheet_bbox_uv")
+    if bbox:
+        u0, v0, u1, v1 = [float(t) for t in bbox]
+        # raster (u, v) -> scene km, same convention as the mist box: row 0 (v=0) is the
+        # NORTH edge (+y), so y needs the swap that x does not.
+        cx0, cx1 = (u0 - 0.5) * width_km, (u1 - 0.5) * width_km
+        cy0, cy1 = (0.5 - v1) * height_km, (0.5 - v0) * height_km
+        crop_w, crop_h = cx1 - cx0, cy1 - cy0
+        if crop_w > 0 and crop_h > 0:
+            crop = (cx0, cx1, cy0, cy1, crop_w, crop_h)
+    if crop is None:
+        if bbox:
+            log("flood sheet: degenerate flood_sheet_bbox_uv - using the full-frame grid")
+        else:
+            log("flood sheet: no flood_sheet_bbox_uv in meta - using the full-frame grid "
+                "(re-run the merge for the cropped, higher-resolution sheet)")
+        cuts_x = cuts_y = SUBDIVISIONS
+        grid_size, grid_loc, y_scale = width_km, (0.0, 0.0, 0.0), height_km / width_km
+    else:
+        cx0, cx1, cy0, cy1, crop_w, crop_h = crop
+        raw_x = crop_w * 1000.0 / FLOOD_SHEET_TARGET_QUAD_M
+        raw_y = crop_h * 1000.0 / FLOOD_SHEET_TARGET_QUAD_M
+        if raw_x * raw_y > FLOOD_SHEET_MAX_VERTS:
+            # scale BOTH axes down together so quads stay square instead of clamping one
+            # axis independently (which would happen for a bbox whose aspect ratio differs
+            # a lot from 1:1, e.g. the video merge's much-wider grace-extended corridor)
+            s = (FLOOD_SHEET_MAX_VERTS / (raw_x * raw_y)) ** 0.5
+            raw_x *= s
+            raw_y *= s
+        cuts_x = max(round(raw_x), FLOOD_SHEET_MIN_SUBDIV)
+        cuts_y = max(round(raw_y), FLOOD_SHEET_MIN_SUBDIV)
+        grid_size = crop_w
+        grid_loc = ((cx0 + cx1) / 2.0, (cy0 + cy1) / 2.0, 0.0)
+        y_scale = crop_h / crop_w
+
     bpy.ops.mesh.primitive_grid_add(
-        x_subdivisions=SUBDIVISIONS, y_subdivisions=SUBDIVISIONS,
-        size=width_km, location=(0, 0, 0))
+        x_subdivisions=cuts_x, y_subdivisions=cuts_y,
+        size=grid_size, location=grid_loc)
     sheet = bpy.context.active_object
     sheet.name = "flood_sheet"
-    sheet.scale = (1.0, height_km / width_km, 1.0)
+    sheet.scale = (1.0, y_scale, 1.0)
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+    if crop is not None:
+        # remap the default 0..1 UV (which now spans only the crop) onto the matching
+        # sub-rectangle of the FULL-frame default UV space, so the displace modifiers
+        # (texture_coords="UV") and the material's image lookups keep sampling the right
+        # part of heightmap/corridor/relief textures that still cover the whole DEM.
+        Uu0, Uu1 = 0.5 + cx0 / width_km, 0.5 + cx1 / width_km
+        Vv0, Vv1 = 0.5 + cy0 / height_km, 0.5 + cy1 / height_km
+        uv_layer = sheet.data.uv_layers.active
+        if uv_layer is not None:
+            for loop in uv_layer.data:
+                lu, lv = loop.uv
+                loop.uv = (Uu0 + lu * (Uu1 - Uu0), Vv0 + lv * (Vv1 - Vv0))
+        log(f"flood sheet: cropped to {crop_w:.0f}x{crop_h:.0f} km "
+            f"({cuts_x}x{cuts_y} cuts, quad ~{crop_w * 1000.0 / cuts_x:.0f} m)")
 
     # displace from the FLOOD WATER-SURFACE heightmap (not the terrain): the sheet sits
     # at the flood water level, so it fills lows and lets highs poke through instead of
@@ -1519,7 +1690,7 @@ def _flood_sheet_material(obj, corr_path, sea_z_km=None, merge_km=0.0):
     sea_z_km/merge_km fade the sheet out as its surface reaches the sea plane, so the
     torrent dissolves into the sea instead of ending at a material seam (FLOOD_SEA_MERGE_M).
     """
-    img = bpy.data.images.load(corr_path)
+    img = bpy.data.images.load(corr_path, check_existing=True)
     try:
         img.colorspace_settings.name = "Non-Color"       # mask channels are data, not colour
     except Exception:
@@ -1534,6 +1705,25 @@ def _flood_sheet_material(obj, corr_path, sea_z_km=None, merge_km=0.0):
     tex.extension = "EXTEND"
     sep = nt.nodes.new("ShaderNodeSeparateColor")
     nt.links.new(tex.outputs["Color"], sep.inputs["Color"])   # R,G,B = coverage,along,foam
+
+    # Gaussian feathers (EXTENT_SMOOTH_M etc.) never reach exactly zero - coverage(R) carries
+    # a tiny, never-quite-zero tail across the WHOLE grid, decaying with distance from the
+    # corridor. The mesh spans the entire regional frame regardless of coverage, so
+    # thresholding it here is cheap insurance; cov_cut also gates Transmission Weight below,
+    # which matters independently: alpha blending only mixes the surface result with what's
+    # behind it, it does not disable the BSDF's own transmission lobe, so a coloured
+    # Transmission keeps tinting the background through the "invisible" sheet everywhere the
+    # geometry exists, even where alpha is already ~0.
+    cov_cut = nt.nodes.new("ShaderNodeMapRange")
+    cov_cut.inputs["From Min"].default_value = 0.02
+    cov_cut.inputs["From Max"].default_value = 0.05
+    cov_cut.inputs["To Min"].default_value = 0.0
+    cov_cut.inputs["To Max"].default_value = 1.0
+    try:
+        cov_cut.clamp = True
+    except AttributeError:
+        pass
+    nt.links.new(sep.outputs["Red"], cov_cut.inputs["Value"])
 
     # base colour: turbid water -> foam by the B (foam) channel
     mix = nt.nodes.new("ShaderNodeMixRGB")
@@ -1556,7 +1746,17 @@ def _flood_sheet_material(obj, corr_path, sea_z_km=None, merge_km=0.0):
         nt.links.new(rough.outputs["Result"], bsdf.inputs["Roughness"])
     except (KeyError, TypeError):
         pass
-    _set_input(bsdf, ["Transmission Weight", "Transmission"], FLOOD_SHEET_TRANSMISSION)
+    trans_mul = nt.nodes.new("ShaderNodeMath"); trans_mul.operation = "MULTIPLY"
+    trans_mul.inputs[1].default_value = float(FLOOD_SHEET_TRANSMISSION)
+    nt.links.new(cov_cut.outputs["Result"], trans_mul.inputs[0])
+    for _name in ("Transmission Weight", "Transmission"):
+        try:
+            nt.links.new(trans_mul.outputs["Value"], bsdf.inputs[_name])
+            break
+        except KeyError:
+            continue
+    else:
+        _set_input(bsdf, ["Transmission Weight", "Transmission"], FLOOD_SHEET_TRANSMISSION)
     _set_input(bsdf, ["IOR"], FLOOD_SHEET_IOR)   # NOT WATER_IOR - see FLOOD_SHEET_IOR
 
     # ripple bump: the megaflood is a torrent, not a mirror - breaks up the flat
@@ -1612,9 +1812,9 @@ def _flood_sheet_material(obj, corr_path, sea_z_km=None, merge_km=0.0):
     rev.inputs[1].default_value = 1.0 / max(FLOOD_FRONT_SOFTNESS, 1e-3)
     nt.links.new(sub.outputs["Value"], rev.inputs[0])
 
-    # alpha = coverage(R) * reveal * sea-dissolve * global alpha
+    # alpha = coverage(R, thresholded) * reveal * sea-dissolve * global alpha
     m1 = nt.nodes.new("ShaderNodeMath"); m1.operation = "MULTIPLY"
-    nt.links.new(sep.outputs["Red"], m1.inputs[0])
+    nt.links.new(cov_cut.outputs["Result"], m1.inputs[0])
     nt.links.new(rev.outputs["Value"], m1.inputs[1])
     alpha_out = m1.outputs["Value"]
 
@@ -1626,8 +1826,25 @@ def _flood_sheet_material(obj, corr_path, sea_z_km=None, merge_km=0.0):
         pos = nt.nodes.new("ShaderNodeSeparateXYZ")
         nt.links.new(geo.outputs["Position"], pos.inputs["Vector"])
         fade = nt.nodes.new("ShaderNodeMapRange")
-        fade.inputs["From Min"].default_value = float(sea_z_km)
-        fade.inputs["From Max"].default_value = float(sea_z_km + merge_km)
+        # From Min is a NAMED Value node, not a bare float: ANIM_SEA_FILL keyframes the sea
+        # plane's world Z (dry -> paleo_sea_level_m), and this dissolve has to track that same
+        # curve. A fixed sea_z_km (the FINAL level) is fine for the still and for the old,
+        # narrow ~19 km2 flood-sheet/sea overlap - but MEGAFLOOD_SEA_GRACE_M now lets the
+        # sheet's coverage reach deep into the basin, where terrain sits well below both the
+        # current AND final sea Z for most of the fill ramp. Dissolving against the FINAL level
+        # while the sea object is still low left the sheet solid over water the sea hadn't
+        # risen to yet - a pale, flatly-lit patch where the matte, non-reflective flood-sheet
+        # material (FLOOD_SHEET_IOR=1.0) showed through instead of the glossy sea. See the
+        # ANIM_SEA_FILL block, which keyframes this node's output with the identical curve.
+        seaz = nt.nodes.new("ShaderNodeValue")
+        seaz.name = "flood_sheet_sea_z"
+        seaz.label = "flood sheet sea z"
+        seaz.outputs[0].default_value = float(sea_z_km)
+        nt.links.new(seaz.outputs[0], fade.inputs["From Min"])
+        addm = nt.nodes.new("ShaderNodeMath"); addm.operation = "ADD"
+        addm.inputs[1].default_value = float(merge_km)
+        nt.links.new(seaz.outputs[0], addm.inputs[0])
+        nt.links.new(addm.outputs["Value"], fade.inputs["From Max"])
         fade.inputs["To Min"].default_value = 0.0
         fade.inputs["To Max"].default_value = 1.0
         try:
@@ -2347,7 +2564,7 @@ def make_scale_bars(meta, ve, width_km, height_km, cam, mat, halo_mat=None):
 
 
 def make_geo_labels(meta, ve, width_km, height_km, cam, mat, halo_mat=None):
-    """Three billboarded place-name labels - see the CONFIG block for the manuscript-checked
+    """Billboarded place-name labels - see the CONFIG block for the manuscript-checked
     siting of each. Camera-pulled exactly like the scale bars, for the same occlusion reason."""
     if not GEO_LABELS or cam is None:
         return []
@@ -2976,7 +3193,18 @@ def setup_animation(scene, meta, ve, water, cam, target, flood_sheet=None,
             # arriving, so they cannot pre-date it. Both are held at zero and brought up as
             # the front reaches the lip - the sediment plume trailing, because a basin's
             # worth of suspended load takes time to spread into the Ionian.
-            lip_f = hold_f + 0.80 * (adv_f - hold_f)
+            # lip_f is the frame at which the reveal value crosses LIP_ALONG (the corridor's
+            # own along-path fraction at MEGAFLOOD_PATH's escarpment-lip waypoint, read off
+            # flood_corridor.png's G channel there). Solved from reveal(t) = a0 + t*(1-a0):
+            # the old hard-coded value is only ever valid for the along-parameterisation it
+            # was measured against - it does not survive a0 changing OR the route's TOTAL
+            # length changing, because along = cumulative-distance/total-length, so every
+            # waypoint's along-value shifts when the route does. Re-measured after rerouting
+            # the outflow tail (see MEGAFLOOD_PATH): 177/255 = 0.694 (was 231/255 = 0.906).
+            LIP_ALONG = 0.694
+            _a0 = float(ANIM_ADVANCE_FROM)
+            _t_lip = min(max((LIP_ALONG - _a0) / max(1.0 - _a0, 1e-6), 0.0), 1.0)
+            lip_f = hold_f + _t_lip * (adv_f - hold_f)
             if mist is not None:
                 mnode = (mist.active_material.node_tree.nodes.get("mist_density")
                          if mist.active_material else None)
@@ -3010,6 +3238,16 @@ def setup_animation(scene, meta, ve, water, cam, target, flood_sheet=None,
                     f"{meta['paleo_sea_level_m']:.0f} m over frames "
                     f"{fill0:.0f}-{fill1:.0f}, then holds "
                     f"{(ANIM_FRAMES - fill1) / ANIM_FPS:.1f} s at the figure's level")
+
+                # keep the flood sheet's sea-dissolve locked to the SAME curve as the sea
+                # plane it is dissolving into - see the comment at flood_sheet_sea_z's
+                # creation. Same keyframe values as the sea plane above, by construction.
+                if flood_sheet is not None and flood_sheet.active_material:
+                    seaz_node = flood_sheet.active_material.node_tree.nodes.get("flood_sheet_sea_z")
+                    if seaz_node is not None:
+                        _key(seaz_node.outputs[0], [(1, z_dry), (fill0, z_dry),
+                                                    (fill1, z_full), (ANIM_FRAMES, z_full)], "BEZIER")
+                        log("anim: flood-sheet sea-dissolve tracks the Ionian fill")
         else:
             log("anim: flood_advance requested but no flood sheet - falling back to a still hold")
 
