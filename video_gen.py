@@ -25,10 +25,7 @@ from tqdm import tqdm
 # Keep each render pass in its own folder: ANIM_RESUME matches frames by NUMBER only, so
 # pointing a fresh pass at a folder from an older pass silently mixes frame sets instead
 # of failing.
-INPUT_FOLDER = Path(
-    r"."
-    r"\output_final\anim_16x9_v5"
-)
+INPUT_FOLDER = Path("output_final/anim_16x9_v5")
 
 OUTPUT_VIDEO = INPUT_FOLDER / "zanclean_flood.mp4"
 

@@ -40,14 +40,13 @@ from mathutils import Vector, Matrix
 # =====================================================================
 # CONFIG
 # =====================================================================
-DATA_DIR   = r"output_overview"
-# DATA_DIR = r"output_overview_old\output_overview"
+DATA_DIR   = "output_overview"
                                      # ^ older merge, kept as a fallback. The active line adds
                                      # MEGAFLOOD_SEA_GRACE_M so the corridor/flood-sheet mask
                                      # reaches the plunge->basin waypoints instead of being
                                      # zeroed at the sea cutoff - see MEGAFLOOD_SEA_GRACE_M in
                                      # merge_paleo_dem.py.
-OUTPUT_PNG = r"output_final\render_waterfall_v18.png"
+OUTPUT_PNG = "output_final/render_waterfall.png"
                                      # the submitted Fig-3b panel. The Extended-Data twin is
                                      # the same run with SHOW_WATER / SHOW_FLOOD_SHEET /
                                      # PLUNGE_MIST off and colormap_dry_png as the ground.
@@ -500,8 +499,7 @@ FLOOD_SHEET_MAX_VERTS   = 2_600_000  # hard cap on cuts_x*cuts_y, not a per-axis
 # invisibly; the plume is the physically expected signature and it dissolves the seam.
 FLOOD_SEA_MERGE_M    = 140.0        # height band (m) over which the sheet dissolves into the sea
 SEA_PLUME            = True         # turbid outflow plume on the sea, from the corridor mask
-SEA_PLUME_CORRIDOR_PNG = (r"."
-                          r"\output_overview_old\output_overview\flood_corridor.png")
+SEA_PLUME_CORRIDOR_PNG = "output_overview_old/output_overview/flood_corridor.png"
                                     # None = use the same corridor mask as the flood sheet
                                     # (meta['flood_corridor_png'] in DATA_DIR). Pinned here to
                                     # the PRE-MEGAFLOOD_SEA_GRACE_M mask on purpose: that grace
@@ -660,8 +658,7 @@ ANIM_FORMAT  = "PNG"                # "PNG" (frame sequence -> video_gen.py) | "
                                     # 400 loses the whole MP4 but keeps every PNG (see
                                     # ANIM_RESUME), and PNG frames can be re-graded/re-encoded
                                     # for whatever format the journal asks for.
-ANIM_DIR     = (r"."
-                r"\output_final\anim_16x9_v4")
+ANIM_DIR     = "output_final/anim_16x9_v4"
                                     # Explicit, versioned folder rather than a default: ANIM_RESUME
                                     # matches frames by NUMBER only, so pointing a run with new
                                     # settings (a route change, a label fix, a mist fix, an aspect
