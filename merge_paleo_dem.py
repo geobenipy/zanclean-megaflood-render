@@ -113,8 +113,7 @@ OUT_META_JSON     = "heightmap_meta.json"
 OUT_HILLSHADE     = "hillshade_qc.png"
 OUT_COLORMAP_PNG  = "colormap.png"
 OUT_COLORMAP_DRY_PNG = "colormap_dry.png"       # same but WITHOUT the megaflood painted in:
-                                                # terrain colour for the flood_advance animation,
-                                                # where the 3D water sheet alone carries the flood
+                                                # terrain colour for a dry-ground render
 OUT_FLOOD_CORRIDOR_PNG = "flood_corridor.png"   # RGB: R=corridor coverage, G=along-path 0..1, B=foam
 OUT_FLOOD_SURFACE_PNG  = "flood_surface_16bit.png"   # 16-bit flood water-surface elevation (Blender flood sheet)
 OUT_FLOOD_RELIEF_PNG   = "flood_relief_16bit.png"    # 16-bit SIGNED cascade relief (metres, +-MEGAFLOOD_RELIEF_AMP_M)
@@ -602,7 +601,7 @@ MEGAFLOOD_SCOUR_M = 0.0   # scours the terrain TAPERED BY THE CORRIDOR WEIGHT, i
                           # megachannel is masked to the CONFINED canyon reach specifically
 
 # Export flood_corridor.png (RGB: R=coverage, G=along-path 0..1, B=foam) so the
-# Blender script can build a real 3D flood water sheet + a "flood rolls in" animation.
+# Blender script can build a real 3D flood water sheet.
 MEGAFLOOD_WRITE_MASK = True
 
 # ---- PERFORMANCE ----
@@ -1967,9 +1966,7 @@ def write_colormap(path, arr, pixel_m, ve, scheme, coverage=None,
     # ------------------------------------------------------------------
     if MEGAFLOOD_CORRIDOR:
         # pre-flood terrain colour (desiccated floor + D8 rivers + remnant basin
-        # lakes, but NO megaflood): the flood_advance animation shows this where
-        # the 3D water sheet hasn't arrived yet - a painted-in flood would spoil
-        # the "flood rolls in" illusion.
+        # lakes, but NO megaflood).
         u8_dry = (np.clip(rgb, 0, 1) * 255).astype(np.uint8)
         try:
             import imageio.v2 as imageio

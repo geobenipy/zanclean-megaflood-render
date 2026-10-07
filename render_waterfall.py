@@ -33,7 +33,6 @@ import os
 import sys
 import json
 import math
-import time
 import warnings
 from mathutils import Vector, Matrix
 
@@ -518,7 +517,6 @@ MIST_NOISE_GAIN  = 0.55              # 0 = smooth airbrushed blob; ~0.5-0.7 = bi
 MIST_STEP_RATE   = 0.5               # Cycles volume step rate. <1 = finer steps = less noise
                                      # but slower. Raise toward 1-2 for fast drafts.
 FLOOD_ADVANCE        = 1.0           # still: reveal fraction 0..1 (source->lip). 1 = full.
-                                     # the 'flood_advance' animation sweeps this 0 -> 1.
 
 # --- zoom / framing ---
 CAM_TARGET_OFFSET_KM = (14.0, -9.0)  # regional overview: recentred onto the escarpment
@@ -531,18 +529,6 @@ CAM_TARGET_OFFSET_KM = (14.0, -9.0)  # regional overview: recentred onto the esc
                                     # 6 km west, so the offset has to move 6 km east to keep the
                                     # falls framed where they were.
 # to zoom: raise CAM_LENS_MM (telephoto, keeps perspective) or lower CAM_DISTANCE_KM (move in)
-
-# --- animation ---
-ANIMATE     = False                 # render an image sequence instead of a single still
-ANIM_TYPE   = "flood_advance"       # "flood_rise" | "orbit" | "flood_and_orbit" | "flood_advance"
-                                    # flood_advance = the corridor reveals source->lip: the
-                                    # megaflood visibly rolls in and hits the falls (hero anim;
-                                    # flood_rise only moves the distant sea plane a little)
-ANIM_FRAMES = 30*25                 # 30 s @ 25 fps; Cycles needs minutes/frame - keep it short
-ANIM_FPS    = 30
-ANIM_FORMAT = "PNG"                 # "PNG" (frame sequence) | "MP4" (FFmpeg, built into Blender)
-ANIM_DIR    = None                  # None = DATA_DIR/anim
-FLOOD_RISE_FROM_M = -3500.0         # flood_rise: start level (deep) -> rises to paleo_sea_level_m
 
 # =====================================================================
 # implementation
@@ -678,14 +664,6 @@ def make_terrain(meta):
         pass
 
     cmap_png = meta.get("colormap_png")
-    # flood_advance: the 3D sheet alone carries the flood, so the ground must show
-    # the PRE-flood desiccated colour - otherwise the painted-in flood is visible
-    # before the water sheet arrives and the "flood rolls in" illusion collapses
-    if ANIMATE and ANIM_TYPE == "flood_advance":
-        dry_png = meta.get("colormap_dry_png")
-        if dry_png and os.path.isfile(os.path.join(DATA_DIR, dry_png)):
-            cmap_png = dry_png
-            log("terrain colour: using pre-flood colormap (%s) for flood_advance" % dry_png)
     has_cmap = cmap_png and os.path.isfile(os.path.join(DATA_DIR, cmap_png))
     _cam_dist = CAM_DISTANCE_KM if CAM_DISTANCE_KM else 1.6 * max(width_km, height_km)
     if PHOTOREAL and has_cmap:
@@ -1273,7 +1251,7 @@ def make_flood_sheet(meta, ve, width_km, height_km):
 
 def _flood_sheet_material(obj, corr_path, sea_z_km=None, merge_km=0.0):
     """Water material clipped by the corridor mask; adds a 'flood_advance_value' node
-    that gates the reveal (source->lip) for the flood_advance animation.
+    that gates the reveal (source->lip), driven by FLOOD_ADVANCE.
 
     sea_z_km/merge_km fade the sheet out as its surface reaches the sea plane, so the
     torrent dissolves into the sea instead of ending at a material seam (FLOOD_SEA_MERGE_M).
@@ -2334,126 +2312,6 @@ def setup_render():
             pass
 
 
-def setup_animation(scene, meta, ve, water, cam, target, flood_sheet=None):
-    """Keyframe a rising flood and/or a camera orbit; configure sequence/video output."""
-    scene.frame_start = 1
-    scene.frame_end = ANIM_FRAMES
-    scene.render.fps = ANIM_FPS
-
-    if ANIM_TYPE in ("flood_rise", "flood_and_orbit") and water is not None:
-        z0 = ve * FLOOD_RISE_FROM_M / 1000.0
-        z1 = ve * meta["paleo_sea_level_m"] / 1000.0
-        water.location.z = z0; water.keyframe_insert("location", index=2, frame=1)
-        water.location.z = z1; water.keyframe_insert("location", index=2, frame=ANIM_FRAMES)
-        log(f"anim: flood rises {FLOOD_RISE_FROM_M:.0f} -> {meta['paleo_sea_level_m']:.0f} m")
-
-    if ANIM_TYPE in ("orbit", "flood_and_orbit"):
-        pivot = bpy.data.objects.new("orbit_pivot", None)
-        bpy.context.collection.objects.link(pivot)
-        pivot.location = target.location
-        cam.parent = pivot
-        cam.matrix_parent_inverse = pivot.matrix_world.inverted()
-        pivot.rotation_euler = (0, 0, 0); pivot.keyframe_insert("rotation_euler", index=2, frame=1)
-        pivot.rotation_euler = (0, 0, math.radians(360)); pivot.keyframe_insert("rotation_euler", index=2, frame=ANIM_FRAMES)
-        # constant-speed orbit
-        if pivot.animation_data and pivot.animation_data.action:
-            for fc in pivot.animation_data.action.fcurves:
-                for kp in fc.keyframe_points:
-                    kp.interpolation = "LINEAR"
-        log("anim: camera orbit 360 deg")
-    if ANIM_TYPE == "flood_advance" and flood_sheet is not None:
-        mat = flood_sheet.active_material
-        node = mat.node_tree.nodes.get("flood_advance_value") if mat else None
-        if node is not None:
-            node.outputs[0].default_value = 0.0
-            node.outputs[0].keyframe_insert("default_value", frame=1)
-            node.outputs[0].default_value = 1.0
-            node.outputs[0].keyframe_insert("default_value", frame=ANIM_FRAMES)
-            ad = mat.node_tree.animation_data
-            if ad and ad.action:
-                for fc in ad.action.fcurves:
-                    for kp in fc.keyframe_points:
-                        kp.interpolation = "LINEAR"
-            log("anim: flood advances (corridor reveal 0 -> 1)")
-        else:
-            log("anim: flood_advance requested but no flood sheet - falling back to a still hold")
-
-
-    anim_dir = ANIM_DIR or os.path.join(DATA_DIR, "anim")
-    os.makedirs(anim_dir, exist_ok=True)
-    if ANIM_FORMAT.upper() == "MP4":
-        scene.render.image_settings.file_format = "FFMPEG"
-        scene.render.ffmpeg.format = "MPEG4"
-        scene.render.ffmpeg.codec = "H264"
-        try:
-            scene.render.ffmpeg.constant_rate_factor = "HIGH"
-        except (AttributeError, TypeError):
-            pass
-        scene.render.filepath = os.path.join(anim_dir, "flood.mp4")
-    else:
-        scene.render.image_settings.file_format = "PNG"
-        scene.render.filepath = os.path.join(anim_dir, "frame_")
-    log(f"anim: {ANIM_FRAMES} frames @ {ANIM_FPS} fps -> {scene.render.filepath}")
-
-
-def _render_anim_with_progress(n_frames, anim_dir):
-    """Run bpy animation render with a tqdm-style progress bar.
-
-    In QUIET mode the Blender per-sample console spam (Fra:N Mem:… Sample N/N …)
-    is redirected to  <anim_dir>/blender_render.log  and our progress bar goes to
-    the original terminal via the saved file descriptor.
-    """
-    import bpy.app.handlers as _hand
-
-    state  = {"n": 0, "t0": time.time(), "term_fd": None}
-    w_bar  = 28
-
-    log_path = os.path.join(anim_dir, "blender_render.log")
-
-    # Redirect Blender's C-level stdout/stderr to a log file (QUIET mode only)
-    if QUIET:
-        try:
-            sys.stdout.flush(); sys.stderr.flush()
-            term_fd = os.dup(1)            # keep a handle to the real terminal
-            log_fd  = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC)
-            os.dup2(log_fd, 1)
-            os.dup2(log_fd, 2)
-            os.close(log_fd)
-            state["term_fd"] = term_fd
-        except Exception:
-            state["term_fd"] = None        # fallback: let Blender spam the console
-
-    def _post(scene, *args):
-        state["n"] += 1
-        n   = state["n"]
-        t   = time.time() - state["t0"]
-        rem = (t / n) * (n_frames - n) if n > 0 else 0
-        f   = int(w_bar * n / n_frames)
-        bar = "█" * f + "░" * (w_bar - f)
-        msg = f"\r  [{bar}] {n}/{n_frames}  ~{int(rem//60)}:{int(rem%60):02d} left  "
-        fd  = state["term_fd"]
-        if fd is not None:
-            os.write(fd, msg.encode("utf-8", errors="replace"))
-        else:
-            sys.stdout.write(msg); sys.stdout.flush()
-
-    _hand.render_post.append(_post)
-    try:
-        bpy.ops.render.render(animation=True)
-    finally:
-        if _post in _hand.render_post:
-            _hand.render_post.remove(_post)
-        fd = state["term_fd"]
-        if fd is not None:
-            try:
-                sys.stdout.flush()
-                os.dup2(fd, 1); os.dup2(fd, 2); os.close(fd)
-            except Exception:
-                pass
-            # print newline after the inline progress bar
-            print()
-
-
 def main():
     if QUIET:
         warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -2489,16 +2347,9 @@ def main():
         print("  scene built (RENDER_ON_RUN=False). Press F12 to render.")
         return
 
-    if ANIMATE:
-        anim_dir = ANIM_DIR or os.path.join(DATA_DIR, "anim")
-        setup_animation(bpy.context.scene, meta, ve, water, cam, target, flood_sheet)
-        print(f"  rendering {ANIM_FRAMES} frames  [{ANIM_TYPE}  {SAMPLES} spp  {ANIM_FPS} fps]")
-        _render_anim_with_progress(ANIM_FRAMES, anim_dir)
-        print(f"  animation done  →  {anim_dir}")
-    else:
-        print(f"  rendering still  [{SAMPLES} spp] …")
-        bpy.ops.render.render(write_still=True)
-        print(f"  done  →  {OUTPUT_PNG}")
+    print(f"  rendering still  [{SAMPLES} spp] …")
+    bpy.ops.render.render(write_still=True)
+    print(f"  done  →  {OUTPUT_PNG}")
 
 
 if __name__ == "__main__":

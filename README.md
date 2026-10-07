@@ -1,6 +1,6 @@
 # Palaeo-DEM → 3D perspective render (Noto Canyon waterfall)
 
-A three-step, install-free pipeline to build a Fig.-4-style oblique perspective
+A two-step, install-free pipeline to build a Fig.-4-style oblique perspective
 view of the fossil waterfall, by fusing your modern topo-bathymetry with the
 interpreted MES surface and rendering it in Blender.
 
@@ -8,10 +8,9 @@ interpreted MES surface and rendering it in Blender.
 merge_paleo_dem.py   →  output_vN/   →  render_waterfall.py  →  PNG
    (plain Python)        (the only        (inside Blender)
                           contract)
-                                       →  video_gen.py        →  MP4
 ```
 
-The two heavy scripts never import each other. Their **only** contract is the
+The two scripts never import each other. Their **only** contract is the
 output directory, described by `heightmap_meta.json`. Everything else is a CONFIG
 block edit at the top of each file.
 
@@ -185,9 +184,6 @@ The spray plume at the foot of the fall is a bounded Principled Volume box whose
 density comes from `flood_mist.png`. `MIST_DENSITY` is the one knob (≈1.0 is a veil you
 can still see through; 2.2 buries the canyon in fog).
 
-`ANIMATE=True, ANIM_TYPE="flood_advance"` sweeps the flood source→lip: the megaflood
-advancing and going over.
-
 Other knobs: `MEGAFLOOD_FEATHER_KM` / `MEGAFLOOD_FALLS_FEATHER_KM` (soft rim on the
 flats vs. the tight rim on the falling cascade), `MEGAFLOOD_CONFINE_TO_TERRAIN`,
 `MEGAFLOOD_POOLING`, `MEGAFLOOD_CONNECTED_FILL`, `MEGAFLOOD_FILL_DEPTH_M`.
@@ -270,21 +266,9 @@ GeoTIFF in QGIS to set it.
 ## Files
 - `merge_paleo_dem.py` — DEM fusion + megaflood + heightmap/mask export (plain Python)
 - `render_waterfall.py` — Blender scene builder + render (**runs inside Blender**)
-- `video_gen.py` — assembles a frame sequence into an MP4 (imageio + FFmpeg on PATH)
 - `README.md` — this file
 
 `output*/` is gitignored — the renders and DEMs are large and reproducible.
-
----
-
-## 3. Video — `video_gen.py`
-
-```bash
-python video_gen.py
-```
-
-Needs `imageio tqdm` and FFmpeg on PATH. Point it at the frame sequence written by
-`ANIMATE=True` in the render script.
 
 ---
 
