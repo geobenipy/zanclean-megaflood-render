@@ -3363,6 +3363,9 @@ def _render_anim_with_progress(n_frames, anim_dir):
 
 
 def main():
+    global DATA_DIR, OUTPUT_PNG
+    # Blender resolves relative image paths against the .blend, not the working directory
+    DATA_DIR, OUTPUT_PNG = os.path.abspath(DATA_DIR), os.path.abspath(OUTPUT_PNG)
     if QUIET:
         warnings.filterwarnings("ignore", category=DeprecationWarning)
     if not os.path.isdir(DATA_DIR):
