@@ -14,7 +14,6 @@ __pycache__/
 *.log
 *.err
 
-# editor / tool-local settings
-
+# editor settings
 .vscode/
 .idea/
