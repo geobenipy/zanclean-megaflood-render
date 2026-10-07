@@ -49,7 +49,8 @@ this and automatically reprojects the modern DEM into the MES's metric CRS, so
 `FEATHER_M` and the Blender scale stay in metres. You can also force it with
 `TARGET_CRS = "EPSG:32633"`.
 
-Edit the **CONFIG block** at the top, then run:
+Edit the **CONFIG block** at the top (point `MODERN_DEM_PATH` / `MES_PATH` at your own
+GEBCO and MES grids; all paths are relative to the directory you run from), then run:
 
 ```bash
 python3 merge_paleo_dem.py

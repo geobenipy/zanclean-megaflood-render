@@ -39,8 +39,8 @@ from mathutils import Vector, Matrix
 # =====================================================================
 # CONFIG
 # =====================================================================
-DATA_DIR   = r"output_overview_old\output_overview"
-OUTPUT_PNG = r"output_final\render_waterfall_v18.png"
+DATA_DIR   = "output_overview"
+OUTPUT_PNG = "output_final/render_waterfall.png"
                                      # the submitted Fig-3b panel. The Extended-Data twin is
                                      # the same run with SHOW_WATER / SHOW_FLOOD_SHEET /
                                      # PLUNGE_MIST off and colormap_dry_png as the ground.
